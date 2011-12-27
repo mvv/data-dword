@@ -235,14 +235,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                           (ConE '[]) (appVN up [step, to, next])])
                 [ValD (VarP next) (NormalB $ appVN '(+) [c, step]) []]]]],
         inlinable 'enumFromThenTo],
-{-
-     inst ''UnwrappedMul [w]
+     inst ''UnwrappedMul [tp]
        [{-
           unwrappedMul (W hi lo) (W hi' lo') =
         -}
-        funXY' 'unwrappedMul 
        ],
--}
      inst ''Num [tp]
        [{-
           negate (W hi lo) = if lo == 0 then W (negate hi) 0
@@ -298,23 +295,36 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                             CondE (appVN '(<) [x, lo]) (litI 1) (litI 0)])],
         inline '(+),
         {-
-          (W hi lo) * (W hi' lo') =
-              W (hi * hi' + hi * fromIntegral lo' +
-                 hi' * fromIntegral lo + fromIntegral x) y
-            where (x, y) = unwrappedMul lo lo'
+          UNSIGNED:
+            (W hi lo) * (W hi' lo') =
+                W (hi * fromIntegral lo' + hi' * fromIntegral lo +
+                   fromIntegral x) y
+              where (x, y) = unwrappedMul lo lo'
+
+          SIGNED:
+            (W hi lo) * (W hi' lo') = W (fromIntegral x) y
+              where U x y = U (fromIntegral hi) lo * U (fromIntegral hi') lo'
         -}
-{-
-        funHiLo2' '(*)
-          (appW [
-            appV '(+) [
-              appV '(+) [appVN '(*) [hi, hi'],
-                         appV '(*) [VarE hi, appVN 'fromIntegral [lo']]],
-              appV '(+) [appV '(*) [VarE hi', appVN 'fromIntegral [lo]],
-                         appVN 'fromIntegral [x]]],
-            VarE y])
-         [vals [x, y] (appVN 'unwrappedMul [lo, lo'])],
-        inlinable "*",
--}
+        if signed
+        then
+          funHiLo2' '(*)
+            (appW [appVN 'fromIntegral [x], VarE y])
+            [ValD (ConP ocn [VarP x, VarP y])
+              (NormalB $
+                appV '(*) [
+                  appC ocn [appVN 'fromIntegral [hi], VarE lo],
+                  appC ocn [appVN 'fromIntegral [hi'], VarE lo']]) []]
+        else
+          funHiLo2' '(*)
+            (appW [
+              appV '(+) [
+                appV '(+) [
+                  appV '(*) [VarE hi, appVN 'fromIntegral [lo']],
+                  appV '(*) [VarE hi', appVN 'fromIntegral [lo]]],
+                appVN 'fromIntegral [x]],
+              VarE y])
+            [vals [x, y] (appVN 'unwrappedMul [lo, lo'])],
+        inline '(*),
         {-
           fromInteger x = W (fromInteger y) (fromInteger z)
             where (y, z) = x `quotRem` (toInteger (maxBound ∷ LoWord W) + 1)
