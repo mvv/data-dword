@@ -445,6 +445,69 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                       appVN 'negate [y]]]
              else appV 'shiftR [appVN 'fromIntegral [hi], appVN 'negate [y]]],
         {-
+          UNSIGNED:
+            rotateL (W hi lo) x =
+                if y >= 0
+                then W (fromIntegral (shiftL lo y) .|. shiftR hi z)
+                     W (shiftL (fromIntegral hi) (bitSize (undefined ∷ L) - z)
+                        .|. shiftR lo z)
+                else W (fromIntegral (shiftR lo $ negate y) .|. shiftL hi x)
+                       (shiftR (fromIntegral hi) (z - bitSize (undefined ∷ L))
+                        .|. shiftL lo x)
+              where y = x - bitSize (undefined ∷ L)
+                    z = bitSize (undefined ∷ W) - x
+          SIGNED:
+            rotateL (W hi lo) x = W (fromIntegral hi') lo'
+              where U hi' lo' = rotateL (U (fromIntegral hi) lo) x
+        -}
+        if signed
+        then
+          funHiLoX' 'rotateL
+            (appW [appVN 'fromIntegral [hi'], VarE lo'])
+            [ValD (ConP ocn [VarP hi', VarP lo'])
+               (NormalB $
+                  appV 'rotateL [
+                    appC ocn [appVN 'fromIntegral [hi], VarE lo],
+                    VarE x]) []]
+        else 
+          funHiLoX' 'rotateL
+            (CondE (appV '(>=) [VarE y, litI 0])
+               (appW [
+                  appV '(.|.) [
+                    appV 'fromIntegral [appVN 'shiftL [lo, y]],
+                    appVN 'shiftR [hi, z]],
+                  appV '(.|.) [
+                    appV 'shiftL [
+                      appVN 'fromIntegral [hi],
+                      appV '(-) [
+                        appV 'bitSize [SigE (VarE 'undefined) loT],
+                        VarE z]],
+                    appVN 'shiftR [lo, z]]])
+               (appW [
+                  appV '(.|.) [
+                    appV 'fromIntegral [
+                      appV 'shiftR [VarE lo, appVN 'negate [y]]],
+                    appVN 'shiftL [hi, x]],
+                  appV '(.|.) [
+                    appV 'shiftR [
+                      appVN 'fromIntegral [hi],
+                      appV '(-) [
+                        VarE z,
+                        appV 'bitSize [SigE (VarE 'undefined) loT]]],
+                    appVN 'shiftL [lo, x]]]))
+            [val y $
+               appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]],
+             val z $
+               appV '(-) [
+                 appV 'bitSize [SigE (VarE 'undefined) (ConT tp)], VarE x]],
+        {- rotateR x y = rotateL x $ bitSize (undefined ∷ W) - y -}
+        funXY 'rotateR $
+          appV 'rotateL [
+            VarE x,
+            appV '(-) [
+              appV 'bitSize [SigE (VarE 'undefined) (ConT tp)], VarE y]],
+        inline 'rotateR,
+        {-
           bit x = if y >= 0 then W (bit y) 0 else W 0 (bit x)
             where y = x - bitSize (undefined ∷ LoWord W)
         -}
