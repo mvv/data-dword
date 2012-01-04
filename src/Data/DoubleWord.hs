@@ -4,7 +4,6 @@
 
 module Data.DoubleWord
   ( module Data.DoubleWord.Base
-{-
   , Word96
   , Word128
   , Word160
@@ -17,7 +16,6 @@ module Data.DoubleWord
   , Int192
   , Int224
   , Int256
--}
   ) where
 
 import Data.Word

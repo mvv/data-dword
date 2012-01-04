@@ -11,7 +11,6 @@ import Data.Ratio ((%))
 import Data.Bits (Bits(..))
 import Data.Hashable (Hashable(..), combine)
 import Control.Applicative ((<$>), (<*>))
-import Control.Monad (foldM)
 import Language.Haskell.TH
 import Data.DoubleWord.Base
 
@@ -327,7 +326,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         inline '(*),
         {-
           fromInteger x = W (fromInteger y) (fromInteger z)
-            where (y, z) = x `quotRem` (toInteger (maxBound ∷ LoWord W) + 1)
+            where (y, z) = x `quotRem` (toInteger (maxBound ∷ L) + 1)
         -}
         funX' 'fromInteger
           (appW [appVN 'fromInteger [y], appVN 'fromInteger [z]])
@@ -344,8 +343,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
      inst ''Integral [tp]
        [{-
           toInteger (W hi lo) =
-            toInteger hi * (toInteger (maxBound ∷ LoWord W) + 1) +
-            toInteger lo
+            toInteger hi * (toInteger (maxBound ∷ L) + 1) + toInteger lo
         -}
         funHiLo 'toInteger $
           appV '(+) [
@@ -374,10 +372,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         inline 'inRange
        ],
      inst ''Bits [tp]
-       [{-
-          bitSize _ = bitSize (undefined ∷ HiWord W)
-                    + bitSize (undefined ∷ LoWord W)
-        -}
+       [{- bitSize _ = bitSize (undefined ∷ H) + bitSize (undefined ∷ L) -}
         fun_ 'bitSize $ appV '(+) [
           appV 'bitSize [SigE (VarE 'undefined) hiT],
           appV 'bitSize [SigE (VarE 'undefined) loT]],
@@ -399,7 +394,116 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         {- (W hi lo) .|. (W hi' lo') = W (hi .|. hi') (lo .|. lo') -}
         funHiLo2 '(.|.) $
           appW [appVN '(.|.) [hi, hi'], appVN '(.|.) [lo, lo']],
-        inline '(.|.)
+        inline '(.|.),
+        {-
+          shiftL (W hi lo) x =
+              if y > 0
+                then W (shiftL hi x .|. fromIntegral (shiftR lo y))
+                       (shiftL lo x)
+                else W (fromIntegral $ shiftL lo $ negate y) 0
+            where y = bitSize (undefined ∷ L) - x
+        -}
+        funHiLoX' 'shiftL
+          (CondE (appV '(>) [VarE y, litI 0])
+                 (appW [appV '(.|.) [
+                          appVN 'shiftL [hi, x],
+                          appV 'fromIntegral [appVN 'shiftR [lo, y]]],
+                        appVN 'shiftL [lo, x]])
+                 (appW [appV 'fromIntegral [
+                          appV 'shiftL [VarE lo, appVN 'negate [y]]],
+                        litI 0]))
+          [val y $
+             appV '(-) [appV 'bitSize [SigE (VarE 'undefined) loT], VarE x]],
+        {-
+          shiftR (W hi lo) x =
+              W (shiftR hi x)
+                (if y >= 0 then shiftL (fromIntegral hi) y .|. shiftR lo x
+                           else z)
+            where y = bitSize (undefined ∷ L) - x
+                  z = if SIGNED
+                      then fromIntegral $
+                             shiftR (fromIntegral hi ∷ SignedWord L) $
+                               negate y
+                      else shiftR (fromIntegral hi) $ negate y
+        -}
+        funHiLoX' 'shiftR
+          (appW [
+             appVN 'shiftR [hi, x],
+             CondE (appV '(>=) [VarE y, litI 0])
+                   (appV '(.|.) [
+                      appV 'shiftL [appVN 'fromIntegral [hi], VarE y],
+                      appVN 'shiftR [lo, x]])
+                   (VarE z)])
+          [val y $
+             appV '(-) [appV 'bitSize [SigE (VarE 'undefined) loT], VarE x],
+           val z $
+             if signed
+             then appV 'fromIntegral [
+                    appV 'shiftR [
+                      SigE (appVN 'fromIntegral [hi])
+                           (AppT (ConT ''SignedWord) loT),
+                      appVN 'negate [y]]]
+             else appV 'shiftR [appVN 'fromIntegral [hi], appVN 'negate [y]]],
+        {-
+          bit x = if y >= 0 then W (bit y) 0 else W 0 (bit x)
+            where y = x - bitSize (undefined ∷ LoWord W)
+        -}
+        funX' 'bit (CondE (appV '(>=) [VarE y, litI 0])
+                          (appW [appVN 'bit [y], litI 0])
+                          (appW [litI 0, appVN 'bit [x]]))
+          [val y $
+             appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]]],
+        inline 'bit,
+        {-
+          setBit (W hi lo) x =
+              if y >= 0 then W (setBit hi y) lo else W hi (setBit lo x)
+            where y = x - bitSize (undefined ∷ L)
+        -}
+        funHiLoX' 'setBit
+          (CondE (appV '(>=) [VarE y, litI 0])
+                 (appW [appVN 'setBit [hi, y], VarE lo])
+                 (appW [VarE hi, appVN 'setBit [lo, x]]))
+          [val y $
+             appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]]],
+        inline 'setBit,
+        {-
+          clearBit (W hi lo) x =
+              if y >= 0 then W (clearBit hi y) lo
+                        else W hi (clearBit lo x)
+            where y = x - bitSize (undefined ∷ L)
+        -}
+        funHiLoX' 'clearBit
+          (CondE (appV '(>=) [VarE y, litI 0])
+                 (appW [appVN 'clearBit [hi, y], VarE lo])
+                 (appW [VarE hi, appVN 'clearBit [lo, x]]))
+          [val y $
+             appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]]],
+        inline 'clearBit,
+        {-
+          complementBit (W hi lo) x =
+              if y >= 0 then W (complementBit hi y) lo
+                        else W hi (complementBit lo x)
+            where y = x - bitSize (undefined ∷ L)
+        -}
+        funHiLoX' 'complementBit
+          (CondE (appV '(>=) [VarE y, litI 0])
+                 (appW [appVN 'complementBit [hi, y], VarE lo])
+                 (appW [VarE hi, appVN 'complementBit [lo, x]]))
+          [val y $
+             appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]]],
+        inline 'complementBit,
+        {-
+          testBit (W hi lo) x =
+              if y >= 0 then testBit hi y else testBit lo x
+            where y = x - bitSize (undefined ∷ L)
+        -}
+        funHiLoX' 'testBit
+          (CondE (appV '(>=) [VarE y, litI 0])
+                 (appVN 'testBit [hi, y])
+                 (appVN 'testBit [lo, x]))
+          [val y $
+             appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]]],
+        inline 'testBit
        ]
     ]
   where
@@ -431,6 +535,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     funLo n e     = FunD n [Clause [ConP cn [WildP, VarP lo]] (NormalB e) []]
     funHi n e     = FunD n [Clause [ConP cn [VarP hi, WildP]] (NormalB e) []]
     funHiLo n e   = FunD n [Clause [ConP cn [VarP hi, VarP lo]] (NormalB e) []]
+    funHiLoX' n e ds =
+      FunD n [Clause [ConP cn [VarP hi, VarP lo], VarP x] (NormalB e) ds]
     funHiLo2 n e     = funHiLo2' n e []
     funHiLo2' n e ds =
       FunD n [Clause [ConP cn [VarP hi, VarP lo],
