@@ -127,7 +127,7 @@ prop_rotateL = propOffsets rotateL rotateL
 prop_rotateR = propOffsets rotateR rotateR
 prop_bit t = all (\b → bit b == fromType t (bit b)) [0 .. bitSize t - 1]
 propBits f g t w =
-  all (\b → f w b == withUnary t (\u → g u b) w) [0 .. bitSize t - 1]
+  all (\b → f w b == withUnary t (`g` b) w) [0 .. bitSize t - 1]
 prop_setBit = propBits setBit setBit
 prop_clearBit = propBits clearBit clearBit
 prop_complementBit = propBits complementBit complementBit
