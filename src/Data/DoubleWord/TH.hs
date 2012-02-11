@@ -326,12 +326,12 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         inline '(*),
         {-
           fromInteger x = W (fromInteger y) (fromInteger z)
-            where (y, z) = x `quotRem` (toInteger (maxBound ∷ L) + 1)
+            where (y, z) = x `divMod` (toInteger (maxBound ∷ L) + 1)
         -}
         funX' 'fromInteger
           (appW [appVN 'fromInteger [y], appVN 'fromInteger [z]])
           [vals [y, z]
-            (appV 'quotRem [
+            (appV 'divMod [
               VarE x,
               appV '(+) [
                 appV 'toInteger [SigE (VarE 'maxBound) loT], litI 1]])],
