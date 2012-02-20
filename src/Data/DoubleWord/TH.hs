@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -567,6 +568,13 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
           [val y $
              appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]]],
         inline 'testBit
+#if MIN_VERSION_base(4,5,0)
+        ,
+        {- popCount (W hi lo) = popCount hi + popCount lo -}
+        funHiLo 'popCount
+          (appV '(+) [appVN 'popCount [hi], appVN 'popCount [lo]]),
+        inline 'popCount
+#endif
        ]
     ]
   where

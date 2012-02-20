@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -64,7 +65,11 @@ isoTestGroup name t =
         , testProperty "setBit" $ prop_setBit t
         , testProperty "clearBit" $ prop_clearBit t
         , testProperty "complementBit" $ prop_complementBit t
-        , testProperty "testBit" $ prop_testBit t ]
+        , testProperty "testBit" $ prop_testBit t
+#if MIN_VERSION_base(4,5,0)
+        , testProperty "popCount" $ prop_popCount t
+#endif
+        ]
     ]
 
 toType ∷ Iso α τ ⇒ τ → α → τ 
@@ -133,4 +138,7 @@ prop_clearBit = propBits clearBit clearBit
 prop_complementBit = propBits complementBit complementBit
 prop_testBit t w =
   all (\b → testBit w b == withUnary' t (`testBit` b) w) [0 .. bitSize t - 1]
+#if MIN_VERSION_base(4,5,0)
+prop_popCount = propUnary' popCount popCount
+#endif
 
