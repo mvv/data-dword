@@ -453,8 +453,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                      W (shiftL (fromIntegral hi) (bitSize (undefined ∷ L) - z)
                         .|. shiftR lo z)
                 else W (fromIntegral (shiftR lo $ negate y) .|. shiftL hi x)
-                       (shiftR (fromIntegral hi) (z - bitSize (undefined ∷ L))
-                        .|. shiftL lo x)
+                       (shift (fromIntegral hi) (bitSize (undefined ∷ L) - z)
+                        .|. shiftL lo x
+                        .|. shiftR lo z)
               where y = x - bitSize (undefined ∷ L)
                     z = bitSize (undefined ∷ W) - x
           SIGNED:
@@ -490,12 +491,14 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                       appV 'shiftR [VarE lo, appVN 'negate [y]]],
                     appVN 'shiftL [hi, x]],
                   appV '(.|.) [
-                    appV 'shiftR [
+                    appV 'shift [
                       appVN 'fromIntegral [hi],
                       appV '(-) [
-                        VarE z,
-                        appV 'bitSize [SigE (VarE 'undefined) loT]]],
-                    appVN 'shiftL [lo, x]]]))
+                        appV 'bitSize [SigE (VarE 'undefined) loT],
+                        VarE z]],
+                    appV '(.|.) [
+                      appVN 'shiftL [lo, x],
+                      appVN 'shiftR [lo, z]]]]))
             [val y $
                appV '(-) [VarE x, appV 'bitSize [SigE (VarE 'undefined) loT]],
              val z $
