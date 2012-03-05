@@ -14,7 +14,7 @@ import Data.Word
 import Data.Int
 import Types
 
-class Iso α τ | α → τ, τ → α where
+class Iso α τ | τ → α where
   fromArbitrary ∷ α → τ 
   toArbitrary ∷ τ → α
 
@@ -26,8 +26,24 @@ instance Iso Int64 I64 where
   fromArbitrary w = I64 (fromIntegral $ w `shiftR` 32) (fromIntegral w)
   toArbitrary (I64 h l) = fromIntegral h `shiftL` 32 .|. fromIntegral l
 
-main = defaultMain [ isoTestGroup "U64" (0 ∷ U64)
-                   , isoTestGroup "I64" (0 ∷ I64) ]
+instance Iso Word64 UU64 where
+  fromArbitrary w = UU64 (fromIntegral $ w `shiftR` 48)
+                         (U48 (fromIntegral $ w `shiftR` 32) (fromIntegral w))
+  toArbitrary (UU64 h (U48 lh ll))  =  fromIntegral h `shiftL` 48
+                                   .|. fromIntegral lh `shiftL` 32
+                                   .|. fromIntegral ll
+
+instance Iso Int64 II64 where
+  fromArbitrary w = II64 (fromIntegral $ w `shiftR` 48)
+                         (U48 (fromIntegral $ w `shiftR` 32) (fromIntegral w))
+  toArbitrary (II64 h (U48 lh ll))  =  fromIntegral h `shiftL` 48
+                                   .|. fromIntegral lh `shiftL` 32
+                                   .|. fromIntegral ll
+
+main = defaultMain [ isoTestGroup "|Word32|Word32|" (0 ∷ U64)
+                   , isoTestGroup "|Int32|Word32|" (0 ∷ I64)
+                   , isoTestGroup "|Word16|Word16|Word32|" (0 ∷ UU64)
+                   , isoTestGroup "|Int16|Word16|Word32|" (0 ∷ II64) ]
 
 isoTestGroup name t =
   testGroup name
