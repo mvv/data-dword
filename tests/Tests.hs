@@ -13,8 +13,8 @@ import Test.QuickCheck hiding ((.&.))
 import Data.Bits
 import Data.Word
 import Data.Int
+import Data.DoubleWord (UnsignedWord, UnwrappedAdd(..), UnwrappedMul(..))
 import Types
-import Data.DoubleWord (UnsignedWord, UnwrappedAdd(..))
 
 class Iso α τ | τ → α where
   fromArbitrary ∷ α → τ 
@@ -60,6 +60,8 @@ isoTestGroup name t =
         , testProperty "pred" $ prop_pred t ]
     , testGroup "UnwrappedAdd"
         [ testProperty "unwrappedAdd" $ prop_unwrappedAdd t ]
+    , testGroup "UnwrappedMul"
+        [ testProperty "unwrappedMul" $ prop_unwrappedMul t ]
     , testGroup "Num"
         [ testProperty "negate" $ prop_negate t
         , testProperty "abs" $ prop_abs t
@@ -135,6 +137,14 @@ prop_unwrappedAdd ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
 prop_unwrappedAdd t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
   where (h1, l1) = unwrappedAdd x y
         (h2, l2) = unwrappedAdd (toType t x) (toType t y)
+
+prop_unwrappedMul ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
+                     UnwrappedMul α, UnwrappedMul τ,
+                     Eq α, Eq (UnsignedWord α))
+                  ⇒ τ → α → α → Bool
+prop_unwrappedMul t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
+  where (h1, l1) = unwrappedMul x y
+        (h2, l2) = unwrappedMul (toType t x) (toType t y)
 
 prop_negate = propUnary negate negate
 prop_abs = propUnary abs abs
