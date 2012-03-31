@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE NoMonomorphismRestriction #-}
@@ -13,6 +14,7 @@ import Data.Bits
 import Data.Word
 import Data.Int
 import Types
+import Data.DoubleWord (UnsignedWord, UnwrappedAdd(..))
 
 class Iso α τ | τ → α where
   fromArbitrary ∷ α → τ 
@@ -56,6 +58,8 @@ isoTestGroup name t =
     , testGroup "Enum"
         [ testProperty "succ" $ prop_succ t
         , testProperty "pred" $ prop_pred t ]
+    , testGroup "UnwrappedAdd"
+        [ testProperty "unwrappedAdd" $ prop_unwrappedAdd t ]
     , testGroup "Num"
         [ testProperty "negate" $ prop_negate t
         , testProperty "abs" $ prop_abs t
@@ -123,6 +127,14 @@ prop_maxBound t = maxBound == fromType t maxBound
 
 prop_succ t w = (w /= maxBound) ==> (succ w == withUnary t succ w)
 prop_pred t w = (w /= minBound) ==> (pred w == withUnary t pred w)
+
+prop_unwrappedAdd ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
+                     UnwrappedAdd α, UnwrappedAdd τ,
+                     Eq α, Eq (UnsignedWord α))
+                  ⇒ τ → α → α → Bool
+prop_unwrappedAdd t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
+  where (h1, l1) = unwrappedAdd x y
+        (h2, l2) = unwrappedAdd (toType t x) (toType t y)
 
 prop_negate = propUnary negate negate
 prop_abs = propUnary abs abs

@@ -235,9 +235,55 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                           (ConE '[]) (appVN up [step, to, next])])
                 [ValD (VarP next) (NormalB $ appVN '(+) [c, step]) []]]]],
         inlinable 'enumFromThenTo],
+     inst ''UnwrappedAdd [tp]
+       [{-
+          UNSIGNED:
+            unwrappedAdd (W hi lo) (W hi' lo') = (W 0 z, W y x)
+              where (t1, x) = unwrappedAdd lo lo' 
+                    (t3, t2) = unwrappedAdd hi (fromIntegral t1)
+                    (t4, y) = unwrappedAdd t2 hi'
+                    z = fromIntegral $ t3 + t4
+          SIGNED:
+            unwrappedAdd (W hi lo) (W hi' lo') = (z, x)
+              where t1 = if hi < 0 then maxBound else minBound
+                    t2 = if hi' < 0 then maxBound else minBound
+                    (y, x) = unwrappedAdd (U (fromIntegral hi) lo)
+                                          (U (fromIntegral hi') lo')
+                    z = fromIntegral $ y + t1 + t2
+        -}
+        if signed
+        then
+          funHiLo2' 'unwrappedAdd (TupE [VarE z, VarE x])
+            [ val t1 $ CondE (appV '(<) [VarE hi, litI 0])
+                             (VarE 'maxBound) (VarE 'minBound)
+            , val t2 $ CondE (appV '(<) [VarE hi', litI 0])
+                             (VarE 'maxBound) (VarE 'minBound)
+            , vals [y, x] $
+                appV 'unwrappedAdd
+                  [ appC ocn [appVN 'fromIntegral [hi], VarE lo]
+                  , appC ocn [appVN 'fromIntegral [hi'], VarE lo'] ]
+            , val z $
+                appV 'fromIntegral [appV '(+) [VarE y, appVN '(+) [t1, t2]]]
+            ]
+        else
+          funHiLo2' 'unwrappedAdd (TupE [appW [litI 0, VarE z], appWN [y, x]])
+            [ vals [t1, x] $ appVN 'unwrappedAdd [lo, lo']
+            , vals [t3, t2] $
+                appV 'unwrappedAdd [VarE hi, appVN 'fromIntegral [t1]]
+            , vals [t4, y] $ appVN 'unwrappedAdd [t2, hi']
+            , val z $ appV 'fromIntegral [appVN '(+) [t3, t4]]
+            ]
+       ],
      inst ''UnwrappedMul [tp]
        [{-
-          unwrappedMul (W hi lo) (W hi' lo') =
+          UNSIGNED:
+            unwrappedMul (W hi lo) (W hi' lo') =
+                (W, W lll)
+              where (llh, lll) = unwrappedMul lo lo'
+                    (hlh, hll) = unwrappedMul (fromIntegral hi) lo
+                    (lhh, lhl) = unwrappedMul lo (fromIntegral hi')
+                    (hhh, hhl) = unwrappedMul hi hi'
+                    
         -}
        ],
      inst ''Num [tp]
@@ -584,6 +630,10 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     x    = mkName "x"
     y    = mkName "y"
     z    = mkName "z"
+    t1   = mkName "t1"
+    t2   = mkName "t2"
+    t3   = mkName "t3"
+    t4   = mkName "t4"
     c    = mkName "c"
     next = mkName "next"
     step = mkName "step"
