@@ -219,15 +219,8 @@ instance UnwrappedMul Word64 where
 
 instance UnwrappedMul Int64 where
   unwrappedMul x y = hi `seq` lo `seq` (hi, lo)
-    where xNeg = x < 0
-          yNeg = y < 0
-          pNeg = xNeg /= yNeg
-          x'   = fromIntegral (if xNeg then negate x else x) ∷ Word64
-          y'   = fromIntegral (if yNeg then negate y else y) ∷ Word64
-          (hi', lo') = unwrappedMul x' y'
-          (hi, lo)   = if pNeg
-                       then (fromIntegral $ negate $
-                               if lo' == 0 then hi' else hi' + 1,
-                             negate lo')
-                       else (fromIntegral hi', lo')
+    where hiX = if x < 0 then negate y else 0
+          hiY = if y < 0 then negate x else 0
+          (hiP, lo) = fromIntegral x `unwrappedMul` fromIntegral y
+          hi = fromIntegral (hiP ∷ Word64) + hiX + hiY
 

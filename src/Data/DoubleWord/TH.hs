@@ -321,10 +321,45 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                     x = fromIntegral $ t6 + t8 + t10
                     y = bitSize (undefined ∷ H)
                     z = bitSize (undefined ∷ L) - y
+          SIGNED:
+            unwrappedMul (W hi lo) (W hi' lo') = (x, y)
+              where t1 = W (complement hi') (complement lo') + 1
+                    t2 = W (complement hi) (complement lo) + 1
+                    (t3, y) = unwrappedMul (W (fromIntegral hi) lo)
+                                           (W (fromIntegral hi') lo')
+                    z = fromIntegral t3
+                    x = if hi < 0
+                        then if hi' < 0
+                             then z + t1 + t2
+                             else z + t1
+                        else if hi' < 0
+                             then z + t2
+                             else z
         -}
         if signed
         then
-          funHiLo2 'unwrappedMul (VarE 'undefined)
+          funHiLo2' 'unwrappedMul (TupE [VarE x, VarE y])
+            [ val t1 $
+                appV '(+) [ appW [ appVN 'complement [hi']
+                                 , appVN 'complement [lo'] ]
+                          , litI 1 ]
+            , val t2 $
+                appV '(+) [ appW [ appVN 'complement [hi]
+                                 , appVN 'complement [lo] ]
+                          , litI 1 ]
+            , vals [t3, y] $
+                appV 'unwrappedMul
+                  [ appC ocn [appVN 'fromIntegral [hi], VarE lo]
+                  , appC ocn [appVN 'fromIntegral [hi'], VarE lo'] ]
+            , val z $ appVN 'fromIntegral [t3]
+            , val x $
+                CondE (appV '(<) [VarE hi, litI 0])
+                  (CondE (appV '(<) [VarE hi', litI 0])
+                     (appV '(+) [VarE z, appVN '(+) [t1, t2]])
+                     (appVN '(+) [z, t1]))
+                  (CondE (appV '(<) [VarE hi', litI 0])
+                     (appVN '(+) [z, t2]) (VarE z))
+            ]
         else
           funHiLo2' 'unwrappedMul
             (TupE [ appW

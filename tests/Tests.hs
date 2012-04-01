@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -42,10 +43,20 @@ instance Iso Int64 II64 where
                                    .|. fromIntegral lh `shiftL` 32
                                    .|. fromIntegral ll
 
-main = defaultMain [ isoTestGroup "|Word32|Word32|" (0 ∷ U64)
+main = defaultMain [ arbTestGroup "Word64" (0 ∷ Word64)
+                   , arbTestGroup "Int64" (0 ∷ Int64)
+                   , isoTestGroup "|Word32|Word32|" (0 ∷ U64)
                    , isoTestGroup "|Int32|Word32|" (0 ∷ I64)
                    , isoTestGroup "|Word16|Word16|Word32|" (0 ∷ UU64)
                    , isoTestGroup "|Int16|Word16|Word32|" (0 ∷ II64) ]
+
+arbTestGroup name t =
+  testGroup name
+    [ testGroup "UnwrappedAdd"
+        [ testProperty "unwrappedAdd" $ prop_unwrappedAddArb t ]
+    , testGroup "UnwrappedMul"
+        [ testProperty "unwrappedMul" $ prop_unwrappedMulArb t ]
+    ]
 
 isoTestGroup name t =
   testGroup name
@@ -93,6 +104,24 @@ isoTestGroup name t =
 #endif
         ]
     ]
+
+prop_unwrappedAddArb ∷ ∀ α
+                     . (Integral α, UnwrappedAdd α, Bounded (UnsignedWord α),
+                        Integral (UnsignedWord α))
+                     ⇒ α → α → α → Bool
+prop_unwrappedAddArb _ x y = s == toInteger x + toInteger y
+  where (hi, lo) = unwrappedAdd x y
+        s = toInteger hi * (toInteger (maxBound ∷ UnsignedWord α) + 1)
+          + toInteger lo
+
+prop_unwrappedMulArb ∷ ∀ α
+                     . (Integral α, UnwrappedMul α, Bounded (UnsignedWord α),
+                        Integral (UnsignedWord α))
+                     ⇒ α → α → α → Bool
+prop_unwrappedMulArb _ x y = p == toInteger x * toInteger y
+  where (hi, lo) = unwrappedMul x y 
+        p = toInteger hi * (toInteger (maxBound ∷ UnsignedWord α) + 1)
+          + toInteger lo
 
 toType ∷ Iso α τ ⇒ τ → α → τ 
 toType _ = fromArbitrary
