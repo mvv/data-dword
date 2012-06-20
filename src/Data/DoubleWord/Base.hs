@@ -11,7 +11,8 @@ module Data.DoubleWord.Base
     SignedWord,
     DoubleWord(..),
     UnwrappedAdd(..),
-    UnwrappedMul(..)
+    UnwrappedMul(..),
+    LeadingZeroes(..)
   ) where
 
 import Data.Int
@@ -223,4 +224,73 @@ instance UnwrappedMul Int64 where
           hiY = if y < 0 then negate x else 0
           (hiP, lo) = fromIntegral x `unwrappedMul` fromIntegral y
           hi = fromIntegral (hiP ∷ Word64) + hiX + hiY
+
+class Bits w ⇒ LeadingZeroes w where
+  leadingZeroes ∷ w → Int
+
+instance LeadingZeroes Word16 where
+  leadingZeroes w | w .&. 0xFF00 == 0 = go8 8 w
+                  | otherwise         = go8 0 (shiftR w 8)
+    where
+      go8 off w' | w' .&. 0xF0 == 0 = go4 (off + 4) w'
+                 | otherwise        = go4 off (shiftR w' 4)
+      go4 off w' | w' .&. 8 /= 0    = off
+                 | w' .&. 4 /= 0    = off + 1
+                 | w' .&. 2 /= 0    = off + 2
+                 | w' .&. 1 /= 0    = off + 3
+                 | otherwise        = off + 4
+
+instance LeadingZeroes Int16 where
+  leadingZeroes w = leadingZeroes w'
+    where w' ∷ Word16
+          w' = fromIntegral w
+  {-# INLINE leadingZeroes #-}
+
+instance LeadingZeroes Word32 where
+  leadingZeroes w | w .&. 0xFFFF0000 == 0 = go16 16 w
+                  | otherwise             = go16 0 (shiftR w 16)
+    where
+      go16 off w' | w' .&. 0xFF00 == 0 = go8 (off + 8) w'
+                  | otherwise          = go8 off (shiftR w' 8)
+      go8  off w' | w' .&. 0xF0 == 0   = go4 (off + 4) w'
+                  | otherwise          = go4 off (shiftR w' 4)
+      go4  off w' | w' .&. 8 /= 0      = off
+                  | w' .&. 4 /= 0      = off + 1
+                  | w' .&. 2 /= 0      = off + 2
+                  | w' .&. 1 /= 0      = off + 3
+                  | otherwise          = off + 4
+
+instance LeadingZeroes Int32 where
+  leadingZeroes w = leadingZeroes w'
+    where w' ∷ Word32
+          w' = fromIntegral w
+  {-# INLINE leadingZeroes #-}
+
+instance LeadingZeroes Word64 where
+#if WORD_SIZE_IN_BITS == 64
+  leadingZeroes w | w .&. 0xFFFFFFFF00000000 == 0 = go32 32 w
+                  | otherwise                     = go32 0 (shiftR w 32)
+    where
+      go32 off w' | w' .&. 0xFFFF0000 == 0 = go16 (off + 16) w'
+                  | otherwise              = go16 off (shiftR w' 16)
+      go16 off w' | w' .&. 0xFF00 == 0     = go8 (off + 8) w'
+                  | otherwise              = go8 off (shiftR w' 8)
+      go8  off w' | w' .&. 0xF0 == 0       = go4 (off + 4) w'
+                  | otherwise              = go4 off (shiftR w' 4)
+      go4  off w' | w' .&. 8 /= 0          = off
+                  | w' .&. 4 /= 0          = off + 1
+                  | w' .&. 2 /= 0          = off + 2
+                  | w' .&. 1 /= 0          = off + 3
+                  | otherwise              = off + 4
+#else
+  leadingZeroes w | hiZeroes == 32 = 32 + leadingZeroes (loWord w)
+                  | otherwise      = hiZeroes
+    where hiZeroes = leadingZeroes (hiWord w)
+#endif
+
+instance LeadingZeroes Int64 where
+  leadingZeroes w = leadingZeroes w'
+    where w' ∷ Word64
+          w' = fromIntegral w
+  {-# INLINE leadingZeroes #-}
 

@@ -12,7 +12,7 @@ import Data.Ratio ((%))
 import Data.Bits (Bits(..))
 import Data.Hashable (Hashable(..), combine)
 import Control.Applicative ((<$>), (<*>))
-import Language.Haskell.TH
+import Language.Haskell.TH hiding (match)
 import Data.DoubleWord.Base
 
 -- |
@@ -504,18 +504,438 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         {- toRational x = toInteger x % 1 -}
         [ funX 'toRational $ appV '(%) [appVN 'toInteger [x], litI 1]
         , inline 'toRational ]
-    , inst ''Integral [tp] $ return $
+    , inst ''Integral [tp]
         {-
           toInteger (W hi lo) =
             toInteger hi * (toInteger (maxBound ∷ L) + 1) + toInteger lo
         -}
-        funHiLo 'toInteger $
-          appV '(+)
-           [ appV '(*)
-               [ appVN 'toInteger [hi]
-               , appV '(+)
-                   [appV 'toInteger [SigE (VarE 'maxBound) loT], litI 1] ]
-           , appVN 'toInteger [lo] ]
+        [ funHiLo 'toInteger $
+            appV '(+)
+              [ appV '(*)
+                  [ appVN 'toInteger [hi]
+                  , appV '(+)
+                      [appV 'toInteger [SigE (VarE 'maxBound) loT], litI 1] ]
+              , appVN 'toInteger [lo] ]
+        {-
+          UNSIGNED:
+            quotRem x@(W hi lo) y@(W hi' lo') =
+                if hi' == 0 && lo' == 0
+                then error "divide by zero"
+                else case compare hi hi' of
+                  LT → (0, x)
+                  EQ → compare lo lo' of
+                    LT → (0, x)
+                    EQ → (1, 0)
+                    GT | hi' == 0 → (W 0 t2, W 0 t1)
+                      where (t2, t1) = quotRem lo lo'
+                    GT → (1, lo - lo')
+                  GT | lo' == 0 → (W 0 (fromIntegral t2),
+                                   W (fromIntegral t1) lo)
+                    where (t2, t1) = quotRem hi hi'
+                  GT | hi' == 0 && lo' == maxBound → 
+                      if t2 == 0
+                      then if t1 == maxBound
+                           then (W 0 z + 1, 0)
+                           else (W 0 z, t1)
+                      else if t1 == maxBound
+                           then (W 0 z + 2, 1)
+                           else if t1 == xor maxBound 1
+                                then (W 0 z + 2, 0)
+                                else (W 0 z + 1, W 0 (t1 + 1))
+                    where z = fromIntegral hi
+                          (t2, t1) = unwrappedAdd z lo
+                  GT | hi' == 0 → (t2, W 0 t1)
+                    where (t2, t1) = div1 hi lo lo'
+                  GT → if t1 == t2
+                       then (1, x - y)
+                       else (W 0 (fromIntegral q2), shiftR r2 t2)
+                    where t1 = leadingZeroes hi
+                          t2 = leadingZeroes hi'
+                          z = shiftR hi (bitSize (undefined ∷ H) - t2)
+                          W hhh hll = shiftL x t2
+                          v@(W lhh lll) = shiftL y t2
+                          -- z hhh hll / lhh lll
+                          ((0, q1), r1) = div2 z hhh lhh
+                          (t4, t3) = unwrappedMul (fromIntegral q1) lll
+                          t5 = W (fromIntegral t4) t3
+                          t6 = W r1 hll
+                          (t8, t7) = unwrappedAdd t6 v
+                          (t10, t9) = unwrappedAdd t7 v
+                          (q2, r2) =
+                            if t5 > t6
+                            then
+                              if loWord t8 == 0
+                              then
+                                if t7 >= t5
+                                then (q1 - 1, t7 - t5)
+                                else
+                                  if loWord t10 == 0
+                                  then (q1 - 2, t9 - t5)
+                                  else (q1 - 2, (maxBound - t5) + t9 + 1)
+                              else
+                                (q1 - 1, (maxBound - t5) + t7 + 1) 
+                            else
+                              (q1, t6 - t5)
+            where div1 hhh hll by = go hhh hll 0
+                    where (t2, t1) = quotRem maxBound by
+                          go h l c =
+                              if z == 0
+                              then (c + W (fromIntegral t8) t7 + W 0 t10, t9)
+                              else go (fromIntegral z) t5
+                                      (c + (W (fromIntegral t8) t7))
+                            where h1 = fromIntegral h
+                                  (t4, t3) = unwrappedMul h1 (t1 + 1)
+                                  (t6, t5) = unwrappedAdd t3 l
+                                  z = t4 + t6
+                                  (t8, t7) = unwrappedMul h1 t2
+                                  (t10, t9) = quotRem t5 by
+                  div2 hhh hll by = go hhh hll (0, 0)
+                    where (t2, t1) = quotRem maxBound by
+                          go h l c =
+                              if z == 0
+                              then (addT (addT c (t8, t7)) (0, t10), t9)
+                              else go z t5 (addT c (t8, t7))
+                            where (t4, t3) = unwrappedMul h (t1 + 1)
+                                  (t6, t5) = unwrappedAdd t3 l
+                                  z = t4 + t6
+                                  (t8, t7) = unwrappedMul h t2
+                                  (t10, t9) = quotRem t5 by
+                          addT (lhh, lhl) (llh, lll) = (lhh + llh + t4, t3)
+                            where (t4, t3) = unwrappedAdd lhl lll
+
+          SIGNED:
+            quotRem x y =
+              if x >= 0
+              then
+                if y >= 0
+                then let (q, r) = quotRem (fromIntegral x ∷ U)
+                                          (fromIntegral y) in
+                       (fromIntegral q, fromIntegral r)
+                else let (q, r) = quotRem (fromIntegral x ∷ U)
+                                          (negate $ fromIntegral y) in
+                       (fromIntegral $ negate q, fromIntegral r)
+              else
+                if y >= 0
+                then let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
+                                          (fromIntegral y) in
+                       (fromIntegral $ negate q, fromIntegral $ negate r)
+                else let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
+                                          (negate $ fromIntegral y) in
+                       (fromIntegral q, fromIntegral $ negate r)
+        -}
+        , if signed
+          then
+            funXY 'quotRem $
+              CondE (appV '(>=) [VarE x, litI 0])
+                (CondE (appV '(>=) [VarE y, litI 0])
+                   (LetE [vals [q, r] $
+                            appV 'quotRem
+                              [ SigE (appVN 'fromIntegral [x]) (ConT otp)
+                              , appVN 'fromIntegral [y] ]]
+                      (TupE [ appVN 'fromIntegral [q]
+                            , appVN 'fromIntegral [r] ]))
+                   (LetE [vals [q, r] $
+                            appV 'quotRem
+                              [ SigE (appVN 'fromIntegral [x]) (ConT otp)
+                              , appV 'fromIntegral [appVN 'negate [y]] ]]
+                      (TupE [ appV 'fromIntegral [appVN 'negate [q]]
+                            , appVN 'fromIntegral [r] ])))
+                (CondE (appV '(>=) [VarE y, litI 0])
+                   (LetE [vals [q, r] $
+                            appV 'quotRem
+                              [ SigE (appV 'fromIntegral [appVN 'negate [x]])
+                                     (ConT otp)
+                              , appVN 'fromIntegral [y] ]]
+                      (TupE [ appV 'fromIntegral [appVN 'negate [q]]
+                            , appV 'fromIntegral [appVN 'negate [r]] ]))
+                   (LetE [vals [q, r] $
+                            appV 'quotRem
+                              [ SigE (appV 'fromIntegral [appVN 'negate [x]])
+                                     (ConT otp)
+                              , appV 'fromIntegral [appVN 'negate [y]] ]]
+                      (TupE [ appVN 'fromIntegral [q]
+                            , appV 'fromIntegral [appVN 'negate [r]] ])))
+          else
+            funHiLo2XY' 'quotRem
+              (CondE (appV '(&&) [ appV '(==) [VarE hi', litI 0]
+                                 , appV '(==) [VarE lo', litI 0] ])
+                 (appV 'error [litS "divide by zero"])
+                 (CaseE (appVN 'compare [hi, hi'])
+                    [ match (ConP 'LT []) (TupE [litI 0, VarE x])
+                    , match (ConP 'EQ [])
+                        (CaseE (appVN 'compare [lo, lo'])
+                           [ match (ConP 'LT []) (TupE [litI 0, VarE x])
+                           , match (ConP 'EQ []) (TupE [litI 1, litI 0])
+                           , Match (ConP 'GT [])
+                               (GuardedB $ return
+                                  ( NormalG (appV '(==) [VarE hi', litI 0])
+                                  , TupE [ appW [litI 0, VarE t2]
+                                         , appW [litI 0, VarE t1] ]))
+                               [vals [t2, t1] $ appVN 'quotRem [lo, lo']]
+                           , match (ConP 'GT []) $
+                               TupE [ litI 1
+                                    , appW [litI 0, appVN '(-) [lo, lo']] ]
+                           ])
+                    , Match (ConP 'GT [])
+                        (GuardedB $ return
+                           ( NormalG (appV '(==) [VarE lo', litI 0])
+                           , TupE
+                               [ appW [litI 0, appVN 'fromIntegral [t2]]
+                               , appW [appVN 'fromIntegral [t1], VarE lo]
+                               ] ))
+                        [vals [t2, t1] $ appVN 'quotRem [hi, hi']]
+                    , Match (ConP 'GT [])
+                        (GuardedB $ return
+                           ( NormalG (appV '(&&)
+                                        [ appV '(==) [VarE hi', litI 0]
+                                        , appVN '(==) [lo', 'maxBound] ])
+                           , CondE (appV '(==) [VarE t2, litI 0])
+                               (CondE (appVN '(==) [t1, 'maxBound])
+                                  (TupE
+                                     [ appV '(+)
+                                         [ appW [litI 0, VarE z] 
+                                         , litI 1 ]
+                                     , litI 0 ])
+                                  (TupE
+                                     [ appW [litI 0, VarE z]
+                                     , appW [litI 0, VarE t1] ]))
+                               (CondE (appVN '(==) [t1, 'maxBound])
+                                  (TupE
+                                     [ appV '(+)
+                                         [appW [litI 0, VarE z], litI 2]
+                                     , litI 1 ])
+                                  (CondE
+                                     (appV '(==)
+                                        [ VarE t1
+                                        , appV 'xor [VarE 'maxBound, litI 1]
+                                        ])
+                                     (TupE
+                                        [ appV '(+)
+                                            [appW [litI 0, VarE z], litI 2]
+                                        , litI 0 ])
+                                     (TupE
+                                        [ appV '(+)
+                                            [appW [litI 0,VarE z], litI 1]
+                                        , appW [ litI 0
+                                               , appV '(+) [VarE t1, litI 1] ]
+                                        ])))
+                           ))
+                        [ val z $ appVN 'fromIntegral [hi]
+                        , vals [t2, t1] $ appVN 'unwrappedAdd [z, lo] ]
+                    , Match (ConP 'GT [])
+                        (GuardedB $ return
+                           ( NormalG (appV '(==) [VarE hi', litI 0])
+                           , TupE [VarE t2, appW [litI 0, VarE t1]] ))
+                        [vals [t2, t1] $ appVN div1 [hi, lo, lo']]
+                    , match' (ConP 'GT [])
+                        (CondE (appVN '(==) [t1, t2])
+                               (TupE [litI 1, appVN '(-) [x, y]])
+                               (TupE [ appW [litI 0, appVN 'fromIntegral [q2]]
+                                     , appVN 'shiftR [r2, t2] ]))
+                        [ val t1 $ appVN 'leadingZeroes [hi]
+                        , val t2 $ appVN 'leadingZeroes [hi']
+                        , val z $ appV 'shiftR
+                                    [ VarE hi
+                                    , appV '(-)
+                                        [ appV 'bitSize
+                                            [SigE (VarE 'undefined) hiT]
+                                        , VarE t2 ]
+                                    ]
+                        , ValD (ConP cn [VarP hhh, VarP hll])
+                            (NormalB $ appVN 'shiftL [x, t2]) [] 
+                        , ValD (AsP v $ ConP cn [VarP lhh, VarP lll])
+                            (NormalB $ appVN 'shiftL [y, t2]) []
+                        , ValD (TupP [ TupP [LitP (IntegerL 0), VarP q1]
+                                     , VarP r1 ])
+                            (NormalB $ appVN div2 [z, hhh, lhh]) []
+                        , vals [t4, t3] $
+                            appV 'unwrappedMul
+                              [appVN 'fromIntegral [q1], VarE lll]
+                        , val t5 $ appW [appVN 'fromIntegral [t4], VarE t3]
+                        , val t6 $ appWN [r1, hll]
+                        , vals [t8, t7] $ appVN 'unwrappedAdd [t6, v]
+                        , vals [t10, t9] $ appVN 'unwrappedAdd [t7, v]
+                        , vals [q2, r2] $
+                            CondE (appVN '(>) [t5, t6])
+                              (CondE (appV '(==) [appVN 'loWord [t8], litI 0])
+                                 (CondE (appVN '(>=) [t7, t5])
+                                    (TupE [ appV '(-) [VarE q1, litI 1]
+                                          , appVN '(-) [t7, t5] ])
+                                    (CondE (appV '(==) [ appVN 'loWord [t10]
+                                                       , litI 0 ])
+                                       (TupE [ appV '(-) [VarE q1, litI 2]
+                                             , appVN '(-) [t9, t5] ])
+                                       (TupE [ appV '(-) [VarE q1, litI 2]
+                                             , appV '(+)
+                                                 [ appVN '(-) ['maxBound, t5]
+                                                 , appV '(+) [VarE t9, litI 1]
+                                                 ]
+                                             ])))
+                                 (TupE [ appV '(-) [VarE q1, litI 1]
+                                       , appV '(+)
+                                           [ appVN '(-) ['maxBound, t5]
+                                           , appV '(+) [VarE t7, litI 1] ]
+                                       ]))
+                              (TupE [VarE q1, appVN '(-) [t6, t5]])
+                        ]
+                    ]))
+              [ FunD div1 $ return $
+                  Clause [VarP hhh, VarP hll, VarP by]
+                    (NormalB (appV go [VarE hhh, VarE hll, litI 0]))
+                    [ vals [t2, t1] $ appVN 'quotRem ['maxBound, by]
+                    , FunD go $ return $
+                        Clause [VarP h, VarP l, VarP c]
+                          (NormalB
+                             (CondE (appV '(==) [VarE z, litI 0])
+                                (TupE [ appV '(+)
+                                          [ VarE c
+                                          , appV '(+)
+                                              [ appW [ appVN 'fromIntegral [t8]
+                                                     , VarE t7 ]
+                                              , appW [litI 0, VarE t10] ]
+                                          ]
+                                      , VarE t9 ])
+                                (appV go
+                                   [ appVN 'fromIntegral [z]
+                                   , VarE t5
+                                   , appV '(+)
+                                       [ VarE c
+                                       , appW [ appVN 'fromIntegral [t8]
+                                              , VarE t7 ]
+                                       ]
+                                   ])))
+                          [ val h1 $ appVN 'fromIntegral [h]
+                          , vals [t4, t3] $
+                              appV 'unwrappedMul
+                                [VarE h1, appV '(+) [VarE t1, litI 1]]
+                          , vals [t6, t5] $ appVN 'unwrappedAdd [t3, l]
+                          , val z $ appVN '(+) [t4, t6]
+                          , vals [t8, t7] $ appVN 'unwrappedMul [h1, t2]
+                          , vals [t10, t9] $ appVN 'quotRem [t5, by] ]
+                    ]
+              , FunD div2 $ return $
+                  Clause [VarP hhh, VarP hll, VarP by]
+                    (NormalB (appV go [ VarE hhh
+                                      , VarE hll
+                                      , TupE [litI 0, litI 0]]))
+                    [ vals [t2, t1] $ appVN 'quotRem ['maxBound, by]
+                    , FunD go $ return $
+                        Clause [VarP h, VarP l, VarP c]
+                          (NormalB
+                             (CondE (appV '(==) [VarE z, litI 0])
+                                (TupE [ appV addT
+                                          [ VarE c
+                                          , appV addT
+                                              [ TupE [VarE t8 , VarE t7]
+                                              , TupE [litI 0, VarE t10] ]
+                                          ]
+                                      , VarE t9 ])
+                                (appV go
+                                   [ VarE z
+                                   , VarE t5
+                                   , appV addT
+                                       [ VarE c
+                                       , TupE [VarE t8, VarE t7]
+                                       ]
+                                   ])))
+                          [ vals [t4, t3] $
+                              appV 'unwrappedMul
+                                [VarE h, appV '(+) [VarE t1, litI 1]]
+                          , vals [t6, t5] $ appVN 'unwrappedAdd [t3, l]
+                          , val z $ appVN '(+) [t4, t6]
+                          , vals [t8, t7] $ appVN 'unwrappedMul [h, t2]
+                          , vals [t10, t9] $ appVN 'quotRem [t5, by] ]
+                    , FunD addT $ return $
+                        Clause [ TupP [VarP lhh, VarP lhl]
+                               , TupP [VarP llh, VarP lll]
+                               ]
+                          (NormalB (TupE [ appV '(+)
+                                             [ VarE t4
+                                             , appVN '(+) [lhh, llh]
+                                             ]
+                                         , VarE t3
+                                         ]))
+                          [vals [t4, t3] $ appVN 'unwrappedAdd [lhl, lll]]
+                    ]
+              ]
+        {-
+          UNSIGNED:
+            divMod = quotRem
+
+          SIGNED:
+            divMod x y =
+              if x >= 0
+              then
+                if y >= 0
+                then let (q, r) = quotRem (fromIntegral x ∷ U)
+                                          (fromIntegral y) in
+                       (fromIntegral q, fromIntegral r)
+                else let (q, r) = quotRem (fromIntegral x ∷ U)
+                                          (negate $ fromIntegral y)
+                         q1 = fromIntegral (negate q)
+                         r1 = fromIntegral r in
+                       if r == 0
+                       then (q1, r1)
+                       else (q1 - 1, r1 + y)
+              else
+                if y >= 0
+                then let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
+                                          (fromIntegral y)
+                         q1 = fromIntegral (negate q)
+                         r1 = fromIntegral (negate r) in
+                       if r == 0
+                       then (q1, r1)
+                       else (q1 - 1, r1 + y)
+                else let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
+                                          (negate $ fromIntegral y) in
+                       (fromIntegral q, fromIntegral $ negate r)
+        -}
+        , if signed
+          then
+            funXY 'divMod $
+              CondE (appV '(>=) [VarE x, litI 0])
+                (CondE (appV '(>=) [VarE y, litI 0])
+                   (LetE [vals [q, r] $
+                            appV 'quotRem
+                              [ SigE (appVN 'fromIntegral [x]) (ConT otp)
+                              , appVN 'fromIntegral [y] ]]
+                      (TupE [ appVN 'fromIntegral [q]
+                            , appVN 'fromIntegral [r] ]))
+                   (LetE [ vals [q, r] $
+                             appV 'quotRem
+                               [ SigE (appVN 'fromIntegral [x]) (ConT otp)
+                               , appV 'fromIntegral [appVN 'negate [y]] ]
+                         , val q1 $ appV 'fromIntegral [appVN 'negate [q]]
+                         , val r1 $ appVN 'fromIntegral [r]
+                         ]
+                      (CondE (appV '(==) [VarE r, litI 0])
+                         (TupE [VarE q1, VarE r1])
+                         (TupE [ appV '(-) [VarE q1, litI 1]
+                               , appVN '(+) [r1, y] ]))))
+                (CondE (appV '(>=) [VarE y, litI 0])
+                   (LetE [ vals [q, r] $
+                             appV 'quotRem
+                               [ SigE (appV 'fromIntegral [appVN 'negate [x]])
+                                      (ConT otp)
+                               , appVN 'fromIntegral [y] ]
+                         , val q1 $ appV 'fromIntegral [appVN 'negate [q]]
+                         , val r1 $ appV 'fromIntegral [appVN 'negate [r]]
+                         ]
+                      (CondE (appV '(==) [VarE r, litI 0])
+                         (TupE [VarE q1, VarE r1])
+                         (TupE [ appV '(-) [VarE q1, litI 1]
+                               , appVN '(+) [r1, y] ])))
+                   (LetE [vals [q, r] $
+                            appV 'quotRem
+                              [ SigE (appV 'fromIntegral [appVN 'negate [x]])
+                                     (ConT otp)
+                              , appV 'fromIntegral [appVN 'negate [y]] ]]
+                      (TupE [ appVN 'fromIntegral [q]
+                            , appV 'fromIntegral [appVN 'negate [r]] ])))
+          else
+            fun 'divMod $ VarE 'quotRem
+        , inline 'divMod
+        ]
     , inst ''Show [tp]
         [ fun 'show $ appVN '(.) ['show, 'toInteger]
         , inline 'show ]
@@ -758,6 +1178,31 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         , inline 'popCount
 #endif
         ]
+    , inst ''LeadingZeroes [tp]
+        {-
+          UNSIGNED:
+            leadingZeroes (W hi lo) =
+                if x == y then y + leadingZeroes lo else x
+              where x = leadingZeroes hi
+                    y = bitSize (undefined ∷ H)
+          SIGNED:
+            leadingZeroes (W hi lo) = leadingZeroes (U (fromIntegral hi) lo)
+        -}
+        [ if signed
+          then
+            funHiLo 'leadingZeroes
+              (appV 'leadingZeroes
+                 [appC ocn [appVN 'fromIntegral [hi], VarE lo]])
+          else
+            funHiLo' 'leadingZeroes
+              (CondE (appVN '(==) [x, y])
+                     (appV '(+) [VarE y, appVN 'leadingZeroes [lo]])
+                     (VarE x))
+              [ val x $ appVN 'leadingZeroes [hi]
+              , val y $ appV 'bitSize [SigE (VarE 'undefined) hiT]
+              ]
+        , inline 'leadingZeroes
+        ]
     ]
   where
     x    = mkName "x"
@@ -773,6 +1218,13 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     t8   = mkName "t8"
     t9   = mkName "t9"
     t10  = mkName "t10"
+    v    = mkName "v"
+    q    = mkName "q"
+    q1   = mkName "q1"
+    q2   = mkName "q2"
+    r    = mkName "r"
+    r1   = mkName "r1"
+    r2   = mkName "r2"
     lll  = mkName "lll"
     llh  = mkName "llh"
     lhl  = mkName "lhl"
@@ -781,6 +1233,14 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     hlh  = mkName "hlh"
     hhl  = mkName "hhl"
     hhh  = mkName "hhh"
+    h    = mkName "h"
+    h1   = mkName "h1"
+    l    = mkName "l"
+    div1 = mkName "div1"
+    div2 = mkName "div2"
+    addT = mkName "addT"
+    by   = mkName "by"
+    go   = mkName "go"
     c    = mkName "c"
     next = mkName "next"
     step = mkName "step"
@@ -796,7 +1256,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     fun_ n e      = FunD n [Clause [WildP] (NormalB e) []]
     funX' n e ds  = FunD n [Clause [VarP x] (NormalB e) ds]
     funX n e      = funX' n e []
-    funXY n e     = FunD n [Clause [VarP x, VarP y] (NormalB e) []]
+    funXY' n e ds = FunD n [Clause [VarP x, VarP y] (NormalB e) ds]
+    funXY n e     = funXY' n e []
     funTup n e    = FunD n [Clause [TupP [VarP x, VarP y]] (NormalB e) []]
     funTupZ n e   =
       FunD n [Clause [TupP [VarP x, VarP y], VarP z] (NormalB e) []]
@@ -804,7 +1265,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
       FunD n [Clause [TupP [VarP x, WildP], VarP z] (NormalB e) []]
     funLo n e     = FunD n [Clause [ConP cn [WildP, VarP lo]] (NormalB e) []]
     funHi n e     = FunD n [Clause [ConP cn [VarP hi, WildP]] (NormalB e) []]
-    funHiLo n e   = FunD n [Clause [ConP cn [VarP hi, VarP lo]] (NormalB e) []]
+    funHiLo n e   = funHiLo' n e []
+    funHiLo' n e ds  =
+      FunD n [Clause [ConP cn [VarP hi, VarP lo]] (NormalB e) ds]
     funHiLoX' n e ds =
       FunD n [Clause [ConP cn [VarP hi, VarP lo], VarP x] (NormalB e) ds]
     funHiLo2 n e     = funHiLo2' n e []
@@ -812,6 +1275,12 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
       FunD n [Clause [ ConP cn [VarP hi, VarP lo]
                      , ConP cn [VarP hi', VarP lo'] ]
                      (NormalB e) ds]
+    funHiLo2XY' n e ds =
+      FunD n [Clause [ AsP x (ConP cn [VarP hi, VarP lo])
+                     , AsP y (ConP cn [VarP hi', VarP lo']) ]
+                     (NormalB e) ds]
+    match' p e ds = Match p (NormalB e) ds
+    match p e     = match' p e []
 #ifdef HAVE_TH_INLINABLE
     inline n = PragmaD $ InlineP n $ InlineSpec Inline False Nothing
     inlinable n = PragmaD $ InlineP n $ InlineSpec Inlinable False Nothing

@@ -7,14 +7,17 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
-import Test.Framework (defaultMain, testGroup)
+import Test.Framework (RunnerOptions'(..), TestOptions'(..),
+                       defaultMainWithOpts, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 import Test.QuickCheck hiding ((.&.))
 
 import Data.Bits
 import Data.Word
 import Data.Int
-import Data.DoubleWord (UnsignedWord, UnwrappedAdd(..), UnwrappedMul(..))
+import Data.Monoid (mempty)
+import Data.DoubleWord (UnsignedWord, UnwrappedAdd(..), UnwrappedMul(..),
+                        LeadingZeroes(..))
 import Types
 
 class Iso α τ | τ → α where
@@ -43,12 +46,17 @@ instance Iso Int64 II64 where
                                    .|. fromIntegral lh `shiftL` 32
                                    .|. fromIntegral ll
 
-main = defaultMain [ arbTestGroup "Word64" (0 ∷ Word64)
-                   , arbTestGroup "Int64" (0 ∷ Int64)
-                   , isoTestGroup "|Word32|Word32|" (0 ∷ U64)
-                   , isoTestGroup "|Int32|Word32|" (0 ∷ I64)
-                   , isoTestGroup "|Word16|Word16|Word32|" (0 ∷ UU64)
-                   , isoTestGroup "|Int16|Word16|Word32|" (0 ∷ II64) ]
+main = defaultMainWithOpts
+         [ arbTestGroup "Word64" (0 ∷ Word64)
+         , arbTestGroup "Int64" (0 ∷ Int64)
+         , isoTestGroup "|Word32|Word32|" (0 ∷ U64)
+         , isoTestGroup "|Int32|Word32|" (0 ∷ I64)
+         , isoTestGroup "|Word16|Word16|Word32|" (0 ∷ UU64)
+         , isoTestGroup "|Int16|Word16|Word32|" (0 ∷ II64) ]
+         mempty {
+           ropt_test_options =
+             Just (mempty { topt_maximum_generated_tests = Just 1000 })
+         }
 
 arbTestGroup name t =
   testGroup name
@@ -56,6 +64,8 @@ arbTestGroup name t =
         [ testProperty "unwrappedAdd" $ prop_unwrappedAddArb t ]
     , testGroup "UnwrappedMul"
         [ testProperty "unwrappedMul" $ prop_unwrappedMulArb t ]
+    , testGroup "LeadingZeroes"
+        [ testProperty "leadingZeroes" $ prop_leadingZeroesArb t ]
     ]
 
 isoTestGroup name t =
@@ -84,7 +94,9 @@ isoTestGroup name t =
     , testGroup "Real"
         [ testProperty "toRational" $ prop_toRational t ]
     , testGroup "Integral"
-        [ testProperty "toInteger" $ prop_toInteger t ]
+        [ testProperty "toInteger" $ prop_toInteger t
+        , testProperty "quotRem" $ prop_quotRem t
+        , testProperty "divMod" $ prop_divMod t ]
     , testGroup "Bits"
         [ testProperty "complement" $ prop_complement t
         , testProperty "xor" $ prop_xor t
@@ -103,6 +115,8 @@ isoTestGroup name t =
         , testProperty "popCount" $ prop_popCount t
 #endif
         ]
+    , testGroup "LeadingZeroes"
+        [ testProperty "leadingZeroes" $ prop_leadingZeroes t ]
     ]
 
 prop_unwrappedAddArb ∷ ∀ α
@@ -122,6 +136,14 @@ prop_unwrappedMulArb _ x y = p == toInteger x * toInteger y
   where (hi, lo) = unwrappedMul x y 
         p = toInteger hi * (toInteger (maxBound ∷ UnsignedWord α) + 1)
           + toInteger lo
+
+prop_leadingZeroesArb ∷ ∀ α . (Num α, LeadingZeroes α) ⇒ α → α → Bool
+prop_leadingZeroesArb _ x
+  | lz == 0   = testBit x (bs - 1)
+  | lz == bs  = x == 0
+  | otherwise = shiftR x (bs - lz) == 0 && testBit x (bs - lz - 1)
+  where lz = leadingZeroes x
+        bs = bitSize x
 
 toType ∷ Iso α τ ⇒ τ → α → τ 
 toType _ = fromArbitrary
@@ -186,6 +208,12 @@ prop_fromInteger t i = fromInteger i == fromType t (fromInteger i)
 prop_toRational = propUnary' toRational toRational
 
 prop_toInteger = propUnary' toInteger toInteger
+prop_quotRem t n d = (d /= 0) ==> (qr == (fromType t q1, fromType t r1))
+  where qr = quotRem n d
+        (q1, r1) = quotRem (fromArbitrary n) (fromArbitrary d)
+prop_divMod t n d = (d /= 0) ==> (qr == (fromType t q1, fromType t r1))
+  where qr = divMod n d
+        (q1, r1) = divMod (fromArbitrary n) (fromArbitrary d)
 
 prop_complement = propUnary complement complement
 prop_xor = propBinary xor xor
@@ -208,4 +236,6 @@ prop_testBit t w =
 #if MIN_VERSION_base(4,5,0)
 prop_popCount = propUnary' popCount popCount
 #endif
+
+prop_leadingZeroes = propUnary' leadingZeroes leadingZeroes
 
