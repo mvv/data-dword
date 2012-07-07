@@ -12,7 +12,7 @@ module Data.DoubleWord.Base
     DoubleWord(..),
     UnwrappedAdd(..),
     UnwrappedMul(..),
-    LeadingZeroes(..)
+    ZeroBits(..)
   ) where
 
 import Data.Int
@@ -225,10 +225,11 @@ instance UnwrappedMul Int64 where
           (hiP, lo) = fromIntegral x `unwrappedMul` fromIntegral y
           hi = fromIntegral (hiP ∷ Word64) + hiX + hiY
 
-class Bits w ⇒ LeadingZeroes w where
+class Bits w ⇒ ZeroBits w where
   leadingZeroes ∷ w → Int
+  trailingZeroes ∷ w → Int
 
-instance LeadingZeroes Word16 where
+instance ZeroBits Word16 where
   leadingZeroes w | w .&. 0xFF00 == 0 = go8 8 w
                   | otherwise         = go8 0 (shiftR w 8)
     where
@@ -239,14 +240,28 @@ instance LeadingZeroes Word16 where
                  | w' .&. 2 /= 0    = off + 2
                  | w' .&. 1 /= 0    = off + 3
                  | otherwise        = off + 4
+  trailingZeroes w | w .&. 0x00FF == 0 = go8 8 (shiftR w 8)
+                   | otherwise         = go8 0 w
+    where
+      go8 off w' | w' .&. 0x0F == 0 = go4 (off + 4) (shiftR w' 4)
+                 | otherwise        = go4 off w'
+      go4 off w' | w' .&. 1 /= 0    = off
+                 | w' .&. 2 /= 0    = off + 1
+                 | w' .&. 4 /= 0    = off + 2
+                 | w' .&. 8 /= 0    = off + 3
+                 | otherwise        = off + 4
 
-instance LeadingZeroes Int16 where
+instance ZeroBits Int16 where
   leadingZeroes w = leadingZeroes w'
     where w' ∷ Word16
           w' = fromIntegral w
   {-# INLINE leadingZeroes #-}
+  trailingZeroes w = trailingZeroes w'
+    where w' ∷ Word16
+          w' = fromIntegral w
+  {-# INLINE trailingZeroes #-}
 
-instance LeadingZeroes Word32 where
+instance ZeroBits Word32 where
   leadingZeroes w | w .&. 0xFFFF0000 == 0 = go16 16 w
                   | otherwise             = go16 0 (shiftR w 16)
     where
@@ -259,14 +274,30 @@ instance LeadingZeroes Word32 where
                   | w' .&. 2 /= 0      = off + 2
                   | w' .&. 1 /= 0      = off + 3
                   | otherwise          = off + 4
+  trailingZeroes w | w .&. 0x0000FFFF == 0 = go16 16 (shiftR w 16)
+                   | otherwise             = go16 0 w
+    where
+      go16 off w' | w' .&. 0x00FF == 0 = go8 (off + 8) (shiftR w' 8)
+                  | otherwise          = go8 off w'
+      go8  off w' | w' .&. 0x0F == 0   = go4 (off + 4) (shiftR w' 4)
+                  | otherwise          = go4 off w'
+      go4  off w' | w' .&. 1 /= 0      = off
+                  | w' .&. 2 /= 0      = off + 1
+                  | w' .&. 4 /= 0      = off + 2
+                  | w' .&. 8 /= 0      = off + 3
+                  | otherwise          = off + 4
 
-instance LeadingZeroes Int32 where
+instance ZeroBits Int32 where
   leadingZeroes w = leadingZeroes w'
     where w' ∷ Word32
           w' = fromIntegral w
   {-# INLINE leadingZeroes #-}
+  trailingZeroes w = trailingZeroes w'
+    where w' ∷ Word32
+          w' = fromIntegral w
+  {-# INLINE trailingZeroes #-}
 
-instance LeadingZeroes Word64 where
+instance ZeroBits Word64 where
 #if WORD_SIZE_IN_BITS == 64
   leadingZeroes w | w .&. 0xFFFFFFFF00000000 == 0 = go32 32 w
                   | otherwise                     = go32 0 (shiftR w 32)
@@ -282,15 +313,36 @@ instance LeadingZeroes Word64 where
                   | w' .&. 2 /= 0          = off + 2
                   | w' .&. 1 /= 0          = off + 3
                   | otherwise              = off + 4
+  trailingZeroes w | w .&. 0x00000000FFFFFFFF == 0 = go32 32 (shiftR w 32)
+                   | otherwise                     = go32 0 w
+    where
+      go32 off w' | w' .&. 0x0000FFFF == 0 = go16 (off + 16) (shiftR w' 16)
+                  | otherwise              = go16 off w'
+      go16 off w' | w' .&. 0x00FF == 0     = go8 (off + 8) (shiftR w' 8)
+                  | otherwise              = go8 off w'
+      go8  off w' | w' .&. 0x0F == 0       = go4 (off + 4) (shiftR w' 4)
+                  | otherwise              = go4 off w'
+      go4  off w' | w' .&. 1 /= 0          = off
+                  | w' .&. 2 /= 0          = off + 1
+                  | w' .&. 4 /= 0          = off + 2
+                  | w' .&. 8 /= 0          = off + 3
+                  | otherwise              = off + 4
 #else
   leadingZeroes w | hiZeroes == 32 = 32 + leadingZeroes (loWord w)
                   | otherwise      = hiZeroes
     where hiZeroes = leadingZeroes (hiWord w)
+  trailingZeroes w | loZeroes == 32 = 32 + trailingZeroes (hiWord w)
+                   | otherwise      = loZeroes
+    where loZeroes = trailingZeroes (loWord w)
 #endif
 
-instance LeadingZeroes Int64 where
+instance ZeroBits Int64 where
   leadingZeroes w = leadingZeroes w'
     where w' ∷ Word64
           w' = fromIntegral w
   {-# INLINE leadingZeroes #-}
+  trailingZeroes w = trailingZeroes w'
+    where w' ∷ Word64
+          w' = fromIntegral w
+  {-# INLINE trailingZeroes #-}
 

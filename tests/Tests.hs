@@ -17,7 +17,7 @@ import Data.Word
 import Data.Int
 import Data.Monoid (mempty)
 import Data.DoubleWord (UnsignedWord, UnwrappedAdd(..), UnwrappedMul(..),
-                        LeadingZeroes(..))
+                        ZeroBits(..))
 import Types
 
 class Iso α τ | τ → α where
@@ -47,7 +47,9 @@ instance Iso Int64 II64 where
                                    .|. fromIntegral ll
 
 main = defaultMainWithOpts
-         [ arbTestGroup "Word64" (0 ∷ Word64)
+         [ arbTestGroup "Word32" (0 ∷ Word32)
+         , arbTestGroup "Int32" (0 ∷ Int32)
+         , arbTestGroup "Word64" (0 ∷ Word64)
          , arbTestGroup "Int64" (0 ∷ Int64)
          , isoTestGroup "|Word32|Word32|" (0 ∷ U64)
          , isoTestGroup "|Int32|Word32|" (0 ∷ I64)
@@ -64,8 +66,9 @@ arbTestGroup name t =
         [ testProperty "unwrappedAdd" $ prop_unwrappedAddArb t ]
     , testGroup "UnwrappedMul"
         [ testProperty "unwrappedMul" $ prop_unwrappedMulArb t ]
-    , testGroup "LeadingZeroes"
-        [ testProperty "leadingZeroes" $ prop_leadingZeroesArb t ]
+    , testGroup "ZeroBits"
+        [ testProperty "leadingZeroes" $ prop_leadingZeroesArb t
+        , testProperty "trailingZeroes" $ prop_trailingZeroesArb t ]
     ]
 
 isoTestGroup name t =
@@ -115,8 +118,9 @@ isoTestGroup name t =
         , testProperty "popCount" $ prop_popCount t
 #endif
         ]
-    , testGroup "LeadingZeroes"
-        [ testProperty "leadingZeroes" $ prop_leadingZeroes t ]
+    , testGroup "ZeroBits"
+        [ testProperty "leadingZeroes" $ prop_leadingZeroes t
+        , testProperty "trailingZeroes" $ prop_trailingZeroes t ]
     ]
 
 prop_unwrappedAddArb ∷ ∀ α
@@ -137,12 +141,20 @@ prop_unwrappedMulArb _ x y = p == toInteger x * toInteger y
         p = toInteger hi * (toInteger (maxBound ∷ UnsignedWord α) + 1)
           + toInteger lo
 
-prop_leadingZeroesArb ∷ ∀ α . (Num α, LeadingZeroes α) ⇒ α → α → Bool
+prop_leadingZeroesArb ∷ ∀ α . (Num α, ZeroBits α) ⇒ α → α → Bool
 prop_leadingZeroesArb _ x
   | lz == 0   = testBit x (bs - 1)
   | lz == bs  = x == 0
   | otherwise = shiftR x (bs - lz) == 0 && testBit x (bs - lz - 1)
   where lz = leadingZeroes x
+        bs = bitSize x
+
+prop_trailingZeroesArb ∷ ∀ α . (Num α, ZeroBits α) ⇒ α → α → Bool
+prop_trailingZeroesArb _ x
+  | tz == 0   = testBit x 0
+  | tz == bs  = x == 0
+  | otherwise = shiftL x (bs - tz) == 0 && testBit x tz
+  where tz = trailingZeroes x
         bs = bitSize x
 
 toType ∷ Iso α τ ⇒ τ → α → τ 
@@ -238,4 +250,5 @@ prop_popCount = propUnary' popCount popCount
 #endif
 
 prop_leadingZeroes = propUnary' leadingZeroes leadingZeroes
+prop_trailingZeroes = propUnary' trailingZeroes trailingZeroes
 

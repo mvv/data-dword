@@ -1178,7 +1178,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         , inline 'popCount
 #endif
         ]
-    , inst ''LeadingZeroes [tp]
+    , inst ''ZeroBits [tp]
         {-
           UNSIGNED:
             leadingZeroes (W hi lo) =
@@ -1202,6 +1202,29 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               , val y $ appV 'bitSize [SigE (VarE 'undefined) hiT]
               ]
         , inline 'leadingZeroes
+        {-
+          UNSIGNED:
+            trailingZeroes (W hi lo) =
+                if x == y then y + trailingZeroes hi else x
+              where x = trailingZeroes lo
+                    y = bitSize (undefined ∷ L)
+          SIGNED:
+            trailingZeroes (W hi lo) = trailingZeroes (U (fromIntegral hi) lo)
+        -}
+        , if signed
+          then
+            funHiLo 'trailingZeroes
+              (appV 'trailingZeroes
+                 [appC ocn [appVN 'fromIntegral [hi], VarE lo]])
+          else
+            funHiLo' 'trailingZeroes
+              (CondE (appVN '(==) [x, y])
+                     (appV '(+) [VarE y, appVN 'trailingZeroes [hi]])
+                     (VarE x))
+              [ val x $ appVN 'trailingZeroes [lo]
+              , val y $ appV 'bitSize [SigE (VarE 'undefined) loT]
+              ]
+        , inline 'trailingZeroes
         ]
     ]
   where
