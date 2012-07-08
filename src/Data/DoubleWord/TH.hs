@@ -35,7 +35,13 @@ mkDoubleWord un uc uhs uhn sn sc shs shn ls ln =
         sn' = mkName sn
         sc' = mkName sc
 
-mkUnpackedDoubleWord ∷ String → Name → String → Name → Name → Q [Dec]
+-- |
+mkUnpackedDoubleWord ∷ String -- ^ Unsigned variant type name
+                     → Name   -- ^ Unsigned variant higher half type
+                     → String -- ^ Signed variant type name
+                     → Name   -- ^ Signed variant higher half type
+                     → Name   -- ^ Lower half type
+                     → Q [Dec]
 mkUnpackedDoubleWord un uhn sn shn ln =
   mkDoubleWord un un Unpacked uhn sn sn Unpacked shn Unpacked ln
 
@@ -47,8 +53,6 @@ mkDoubleWord' ∷ Bool
               → Q [Dec]
 mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     [ DataD [] tp [] [NormalC cn [(hiS, hiT), (loS, loT)]] []
-    , TySynInstD ''UnsignedWord [ConT tp] $ ConT $ if signed then otp else tp
-    , TySynInstD ''SignedWord [ConT tp] $ ConT $ if signed then tp else otp
     , inst ''DoubleWord [tp]
         [ TySynInstD ''LoWord [ConT tp] loT
         , TySynInstD ''HiWord [ConT tp] hiT
@@ -263,137 +267,6 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         , inlinable 'enumFromThenTo
 #endif
         ]
-    , inst ''UnwrappedAdd [tp] $ return $
-        {-
-          UNSIGNED:
-            unwrappedAdd (W hi lo) (W hi' lo') = (W 0 z, W y x)
-              where (t1, x) = unwrappedAdd lo lo' 
-                    (t3, t2) = unwrappedAdd hi (fromIntegral t1)
-                    (t4, y) = unwrappedAdd t2 hi'
-                    z = fromIntegral $ t3 + t4
-          SIGNED:
-            unwrappedAdd (W hi lo) (W hi' lo') = (z, x)
-              where t1 = if hi < 0 then maxBound else minBound
-                    t2 = if hi' < 0 then maxBound else minBound
-                    (y, x) = unwrappedAdd (U (fromIntegral hi) lo)
-                                          (U (fromIntegral hi') lo')
-                    z = fromIntegral $ y + t1 + t2
-        -}
-        if signed
-        then
-          funHiLo2' 'unwrappedAdd (TupE [VarE z, VarE x])
-            [ val t1 $ CondE (appV '(<) [VarE hi, litI 0])
-                             (VarE 'maxBound) (VarE 'minBound)
-            , val t2 $ CondE (appV '(<) [VarE hi', litI 0])
-                             (VarE 'maxBound) (VarE 'minBound)
-            , vals [y, x] $
-                appV 'unwrappedAdd
-                  [ appC ocn [appVN 'fromIntegral [hi], VarE lo]
-                  , appC ocn [appVN 'fromIntegral [hi'], VarE lo'] ]
-            , val z $
-                appV 'fromIntegral [appV '(+) [VarE y, appVN '(+) [t1, t2]]]
-            ]
-        else
-          funHiLo2' 'unwrappedAdd
-            (TupE [appW [litI 0, VarE z], appWN [y, x]])
-            [ vals [t1, x] $ appVN 'unwrappedAdd [lo, lo']
-            , vals [t3, t2] $
-                appV 'unwrappedAdd [VarE hi, appVN 'fromIntegral [t1]]
-            , vals [t4, y] $ appVN 'unwrappedAdd [t2, hi']
-            , val z $ appV 'fromIntegral [appVN '(+) [t3, t4]]
-            ]
-    , inst ''UnwrappedMul [tp] $ return $
-        {-
-          UNSIGNED:
-            unwrappedMul (W hi lo) (W hi' lo') =
-                (W (hhh + fromIntegral (shiftR t9 y) + shiftL x z)
-                   (shiftL t9 z .|. shiftR t3 y),
-                 W (fromIntegral t3) lll)
-              where (llh, lll) = unwrappedMul lo lo'
-                    (hlh, hll) = unwrappedMul (fromIntegral hi) lo'
-                    (lhh, lhl) = unwrappedMul lo (fromIntegral hi')
-                    (hhh, hhl) = unwrappedMul hi hi'
-                    (t2, t1) = unwrappedAdd llh hll
-                    (t4, t3) = unwrappedAdd t1 lhl
-                    (t6, t5) = unwrappedAdd (fromIntegral hhl) (t2 + t4)
-                    (t8, t7) = unwrappedAdd t5 lhh
-                    (t10, t9) = unwrappedAdd t7 hlh
-                    x = fromIntegral $ t6 + t8 + t10
-                    y = bitSize (undefined ∷ H)
-                    z = bitSize (undefined ∷ L) - y
-          SIGNED:
-            unwrappedMul (W hi lo) (W hi' lo') = (x, y)
-              where t1 = W (complement hi') (complement lo') + 1
-                    t2 = W (complement hi) (complement lo) + 1
-                    (t3, y) = unwrappedMul (W (fromIntegral hi) lo)
-                                           (W (fromIntegral hi') lo')
-                    z = fromIntegral t3
-                    x = if hi < 0
-                        then if hi' < 0
-                             then z + t1 + t2
-                             else z + t1
-                        else if hi' < 0
-                             then z + t2
-                             else z
-        -}
-        if signed
-        then
-          funHiLo2' 'unwrappedMul (TupE [VarE x, VarE y])
-            [ val t1 $
-                appV '(+) [ appW [ appVN 'complement [hi']
-                                 , appVN 'complement [lo'] ]
-                          , litI 1 ]
-            , val t2 $
-                appV '(+) [ appW [ appVN 'complement [hi]
-                                 , appVN 'complement [lo] ]
-                          , litI 1 ]
-            , vals [t3, y] $
-                appV 'unwrappedMul
-                  [ appC ocn [appVN 'fromIntegral [hi], VarE lo]
-                  , appC ocn [appVN 'fromIntegral [hi'], VarE lo'] ]
-            , val z $ appVN 'fromIntegral [t3]
-            , val x $
-                CondE (appV '(<) [VarE hi, litI 0])
-                  (CondE (appV '(<) [VarE hi', litI 0])
-                     (appV '(+) [VarE z, appVN '(+) [t1, t2]])
-                     (appVN '(+) [z, t1]))
-                  (CondE (appV '(<) [VarE hi', litI 0])
-                     (appVN '(+) [z, t2]) (VarE z))
-            ]
-        else
-          funHiLo2' 'unwrappedMul
-            (TupE [ appW
-                      [ appV '(+)
-                          [ VarE hhh
-                          , appV '(+)
-                              [ appV 'fromIntegral [appVN 'shiftR [t9, y]]
-                              , appVN 'shiftL [x, z] ]
-                          ]
-                      , appV '(.|.) [ appVN 'shiftL [t9, z]
-                                    , appVN 'shiftR [t3, y] ]
-                      ]
-                  , appW [appVN 'fromIntegral [t3], VarE lll]
-                  ])
-            [ vals [llh, lll] $ appVN 'unwrappedMul [lo, lo']
-            , vals [hlh, hll] $
-                appV 'unwrappedMul [appVN 'fromIntegral [hi], VarE lo']
-            , vals [lhh, lhl] $
-                appV 'unwrappedMul [VarE lo, appVN 'fromIntegral [hi']]
-            , vals [hhh, hhl] $ appVN 'unwrappedMul [hi, hi']
-            , vals [t2, t1] $ appVN 'unwrappedAdd [llh, hll]
-            , vals [t4, t3] $ appVN 'unwrappedAdd [t1, lhl]
-            , vals [t6, t5] $
-                appV 'unwrappedAdd [ appVN 'fromIntegral [hhl]
-                                   , appVN '(+) [t2, t4] ]
-            , vals [t8, t7] $ appVN 'unwrappedAdd [t5, lhh]
-            , vals [t10, t9] $ appVN 'unwrappedAdd [t7, hlh]
-            , val x $
-                appV 'fromIntegral
-                  [appV '(+) [VarE t6, appVN '(+) [t8, t10]]]
-            , val y $ appV 'bitSize [SigE (VarE 'undefined) hiT]
-            , val z $ appV '(-) [ appV 'bitSize [SigE (VarE 'undefined) loT]
-                                , VarE y ]
-            ]
     , inst ''Num [tp]
         {-
           negate (W hi lo) = if lo == 0 then W (negate hi) 0
@@ -1178,7 +1051,166 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         , inline 'popCount
 #endif
         ]
-    , inst ''ZeroBits [tp]
+    , inst ''BinaryWord [tp]
+        [ TySynInstD ''UnsignedWord [ConT tp] $
+            ConT $ if signed then otp else tp
+        , TySynInstD ''SignedWord [ConT tp] $
+            ConT $ if signed then tp else otp
+        {-
+          UNSIGNED:
+            unsignedWord = id
+          
+          SIGNED:
+            unsignedWord (W hi lo) = U (unsignedWord hi) lo
+        -}
+        , if signed
+          then
+            funHiLo 'unsignedWord $
+              appC ocn [appVN 'unsignedWord [hi], VarE lo]
+          else
+            fun 'unsignedWord $ VarE 'id
+        , inline 'unsignedWord
+        {-
+          UNSIGNED:
+            signedWord (W hi lo) = S (signedWord hi) lo
+          
+          SIGNED:
+            signedWord = id
+        -}
+        , if signed
+          then
+            fun 'signedWord $ VarE 'id
+          else
+            funHiLo 'signedWord $
+              appC ocn [appVN 'signedWord [hi], VarE lo]
+        , inline 'signedWord
+        {-
+          UNSIGNED:
+            unwrappedAdd (W hi lo) (W hi' lo') = (W 0 z, W y x)
+              where (t1, x) = unwrappedAdd lo lo' 
+                    (t3, t2) = unwrappedAdd hi (fromIntegral t1)
+                    (t4, y) = unwrappedAdd t2 hi'
+                    z = fromIntegral $ t3 + t4
+          SIGNED:
+            unwrappedAdd x y = (z, t4)
+              where t1 = if hiWord x < 0 then maxBound else minBound
+                    t2 = if hiWord y < 0 then maxBound else minBound
+                    (t3, t4) = unwrappedAdd (unsignedWord x) (unsignedWord y)
+                    z = signedWord $ t1 + t2 + t3
+        -}
+        , if signed
+          then
+            funXY' 'unwrappedAdd (TupE [VarE z, VarE t4])
+              [ val t1 $ CondE (appV '(<) [appVN 'hiWord [x], litI 0])
+                               (VarE 'maxBound) (VarE 'minBound)
+              , val t2 $ CondE (appV '(<) [appVN 'hiWord [y], litI 0])
+                               (VarE 'maxBound) (VarE 'minBound)
+              , vals [t3, t4] $
+                  appV 'unwrappedAdd [ appVN 'unsignedWord [x]
+                                     , appVN 'unsignedWord [y] ]
+              , val z $
+                  appV 'signedWord [appV '(+) [VarE t1, appVN '(+) [t2, t3]]]
+              ]
+          else
+            funHiLo2' 'unwrappedAdd
+              (TupE [appW [litI 0, VarE z], appWN [y, x]])
+              [ vals [t1, x] $ appVN 'unwrappedAdd [lo, lo']
+              , vals [t3, t2] $
+                  appV 'unwrappedAdd [VarE hi, appVN 'fromIntegral [t1]]
+              , vals [t4, y] $ appVN 'unwrappedAdd [t2, hi']
+              , val z $ appV 'fromIntegral [appVN '(+) [t3, t4]]
+              ]
+        {-
+          UNSIGNED:
+            unwrappedMul (W hi lo) (W hi' lo') =
+                (W (hhh + fromIntegral (shiftR t9 y) + shiftL x z)
+                   (shiftL t9 z .|. shiftR t3 y),
+                 W (fromIntegral t3) lll)
+              where (llh, lll) = unwrappedMul lo lo'
+                    (hlh, hll) = unwrappedMul (fromIntegral hi) lo'
+                    (lhh, lhl) = unwrappedMul lo (fromIntegral hi')
+                    (hhh, hhl) = unwrappedMul hi hi'
+                    (t2, t1) = unwrappedAdd llh hll
+                    (t4, t3) = unwrappedAdd t1 lhl
+                    (t6, t5) = unwrappedAdd (fromIntegral hhl) (t2 + t4)
+                    (t8, t7) = unwrappedAdd t5 lhh
+                    (t10, t9) = unwrappedAdd t7 hlh
+                    x = fromIntegral $ t6 + t8 + t10
+                    y = bitSize (undefined ∷ H)
+                    z = bitSize (undefined ∷ L) - y
+          SIGNED:
+            unwrappedMul (W hi lo) (W hi' lo') = (x, y)
+              where t1 = W (complement hi') (complement lo') + 1
+                    t2 = W (complement hi) (complement lo) + 1
+                    (t3, y) = unwrappedMul (U (unsignedWord hi) lo)
+                                           (U (unsignedWord hi') lo')
+                    z = signedWord t3
+                    x = if hi < 0
+                        then if hi' < 0
+                             then z + t1 + t2
+                             else z + t1
+                        else if hi' < 0
+                             then z + t2
+                             else z
+        -}
+        , if signed
+          then
+            funHiLo2' 'unwrappedMul (TupE [VarE x, VarE y])
+              [ val t1 $
+                  appV '(+) [ appW [ appVN 'complement [hi']
+                                   , appVN 'complement [lo'] ]
+                            , litI 1 ]
+              , val t2 $
+                  appV '(+) [ appW [ appVN 'complement [hi]
+                                   , appVN 'complement [lo] ]
+                            , litI 1 ]
+              , vals [t3, y] $
+                  appV 'unwrappedMul
+                    [ appC ocn [appVN 'unsignedWord [hi], VarE lo]
+                    , appC ocn [appVN 'unsignedWord [hi'], VarE lo'] ]
+              , val z $ appVN 'signedWord [t3]
+              , val x $
+                  CondE (appV '(<) [VarE hi, litI 0])
+                    (CondE (appV '(<) [VarE hi', litI 0])
+                       (appV '(+) [VarE z, appVN '(+) [t1, t2]])
+                       (appVN '(+) [z, t1]))
+                    (CondE (appV '(<) [VarE hi', litI 0])
+                       (appVN '(+) [z, t2]) (VarE z))
+              ]
+          else
+            funHiLo2' 'unwrappedMul
+              (TupE [ appW
+                        [ appV '(+)
+                            [ VarE hhh
+                            , appV '(+)
+                                [ appV 'fromIntegral [appVN 'shiftR [t9, y]]
+                                , appVN 'shiftL [x, z] ]
+                            ]
+                        , appV '(.|.) [ appVN 'shiftL [t9, z]
+                                      , appVN 'shiftR [t3, y] ]
+                        ]
+                    , appW [appVN 'fromIntegral [t3], VarE lll]
+                    ])
+              [ vals [llh, lll] $ appVN 'unwrappedMul [lo, lo']
+              , vals [hlh, hll] $
+                  appV 'unwrappedMul [appVN 'fromIntegral [hi], VarE lo']
+              , vals [lhh, lhl] $
+                  appV 'unwrappedMul [VarE lo, appVN 'fromIntegral [hi']]
+              , vals [hhh, hhl] $ appVN 'unwrappedMul [hi, hi']
+              , vals [t2, t1] $ appVN 'unwrappedAdd [llh, hll]
+              , vals [t4, t3] $ appVN 'unwrappedAdd [t1, lhl]
+              , vals [t6, t5] $
+                  appV 'unwrappedAdd [ appVN 'fromIntegral [hhl]
+                                     , appVN '(+) [t2, t4] ]
+              , vals [t8, t7] $ appVN 'unwrappedAdd [t5, lhh]
+              , vals [t10, t9] $ appVN 'unwrappedAdd [t7, hlh]
+              , val x $
+                  appV 'fromIntegral
+                    [appV '(+) [VarE t6, appVN '(+) [t8, t10]]]
+              , val y $ appV 'bitSize [SigE (VarE 'undefined) hiT]
+              , val z $ appV '(-) [ appV 'bitSize [SigE (VarE 'undefined) loT]
+                                  , VarE y ]
+              ]
         {-
           UNSIGNED:
             leadingZeroes (W hi lo) =
@@ -1186,13 +1218,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               where x = leadingZeroes hi
                     y = bitSize (undefined ∷ H)
           SIGNED:
-            leadingZeroes (W hi lo) = leadingZeroes (U (fromIntegral hi) lo)
+            leadingZeroes = leadingZeroes . unsignedWord
         -}
-        [ if signed
+        , if signed
           then
-            funHiLo 'leadingZeroes
-              (appV 'leadingZeroes
-                 [appC ocn [appVN 'fromIntegral [hi], VarE lo]])
+            fun 'leadingZeroes $ appVN '(.) ['leadingZeroes, 'unsignedWord]
           else
             funHiLo' 'leadingZeroes
               (CondE (appVN '(==) [x, y])
@@ -1209,13 +1239,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               where x = trailingZeroes lo
                     y = bitSize (undefined ∷ L)
           SIGNED:
-            trailingZeroes (W hi lo) = trailingZeroes (U (fromIntegral hi) lo)
+            trailingZeroes = trailingZeroes . unsignedWord
         -}
         , if signed
           then
-            funHiLo 'trailingZeroes
-              (appV 'trailingZeroes
-                 [appC ocn [appVN 'fromIntegral [hi], VarE lo]])
+            fun 'trailingZeroes $ appVN '(.) ['trailingZeroes, 'unsignedWord]
           else
             funHiLo' 'trailingZeroes
               (CondE (appVN '(==) [x, y])

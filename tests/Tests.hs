@@ -16,8 +16,7 @@ import Data.Bits
 import Data.Word
 import Data.Int
 import Data.Monoid (mempty)
-import Data.DoubleWord (UnsignedWord, UnwrappedAdd(..), UnwrappedMul(..),
-                        ZeroBits(..))
+import Data.DoubleWord (BinaryWord(..))
 import Types
 
 class Iso α τ | τ → α where
@@ -62,12 +61,10 @@ main = defaultMainWithOpts
 
 arbTestGroup name t =
   testGroup name
-    [ testGroup "UnwrappedAdd"
-        [ testProperty "unwrappedAdd" $ prop_unwrappedAddArb t ]
-    , testGroup "UnwrappedMul"
-        [ testProperty "unwrappedMul" $ prop_unwrappedMulArb t ]
-    , testGroup "ZeroBits"
-        [ testProperty "leadingZeroes" $ prop_leadingZeroesArb t
+    [ testGroup "BinaryWord"
+        [ testProperty "unwrappedAdd" $ prop_unwrappedAddArb t
+        , testProperty "unwrappedMul" $ prop_unwrappedMulArb t
+        , testProperty "leadingZeroes" $ prop_leadingZeroesArb t
         , testProperty "trailingZeroes" $ prop_trailingZeroesArb t ]
     ]
 
@@ -82,10 +79,6 @@ isoTestGroup name t =
     , testGroup "Enum"
         [ testProperty "succ" $ prop_succ t
         , testProperty "pred" $ prop_pred t ]
-    , testGroup "UnwrappedAdd"
-        [ testProperty "unwrappedAdd" $ prop_unwrappedAdd t ]
-    , testGroup "UnwrappedMul"
-        [ testProperty "unwrappedMul" $ prop_unwrappedMul t ]
     , testGroup "Num"
         [ testProperty "negate" $ prop_negate t
         , testProperty "abs" $ prop_abs t
@@ -118,13 +111,16 @@ isoTestGroup name t =
         , testProperty "popCount" $ prop_popCount t
 #endif
         ]
-    , testGroup "ZeroBits"
-        [ testProperty "leadingZeroes" $ prop_leadingZeroes t
-        , testProperty "trailingZeroes" $ prop_trailingZeroes t ]
+    , testGroup "BinaryWord"
+        [ testProperty "unwrappedAdd" $ prop_unwrappedAdd t
+        , testProperty "unwrappedMul" $ prop_unwrappedMul t
+        , testProperty "leadingZeroes" $ prop_leadingZeroes t
+        , testProperty "trailingZeroes" $ prop_trailingZeroes t
+        ]
     ]
 
 prop_unwrappedAddArb ∷ ∀ α
-                     . (Integral α, UnwrappedAdd α, Bounded (UnsignedWord α),
+                     . (Integral α, BinaryWord α, Bounded (UnsignedWord α),
                         Integral (UnsignedWord α))
                      ⇒ α → α → α → Bool
 prop_unwrappedAddArb _ x y = s == toInteger x + toInteger y
@@ -133,7 +129,7 @@ prop_unwrappedAddArb _ x y = s == toInteger x + toInteger y
           + toInteger lo
 
 prop_unwrappedMulArb ∷ ∀ α
-                     . (Integral α, UnwrappedMul α, Bounded (UnsignedWord α),
+                     . (Integral α, BinaryWord α, Bounded (UnsignedWord α),
                         Integral (UnsignedWord α))
                      ⇒ α → α → α → Bool
 prop_unwrappedMulArb _ x y = p == toInteger x * toInteger y
@@ -141,7 +137,7 @@ prop_unwrappedMulArb _ x y = p == toInteger x * toInteger y
         p = toInteger hi * (toInteger (maxBound ∷ UnsignedWord α) + 1)
           + toInteger lo
 
-prop_leadingZeroesArb ∷ ∀ α . (Num α, ZeroBits α) ⇒ α → α → Bool
+prop_leadingZeroesArb ∷ ∀ α . (Num α, BinaryWord α) ⇒ α → α → Bool
 prop_leadingZeroesArb _ x
   | lz == 0   = testBit x (bs - 1)
   | lz == bs  = x == 0
@@ -149,7 +145,7 @@ prop_leadingZeroesArb _ x
   where lz = leadingZeroes x
         bs = bitSize x
 
-prop_trailingZeroesArb ∷ ∀ α . (Num α, ZeroBits α) ⇒ α → α → Bool
+prop_trailingZeroesArb ∷ ∀ α . (Num α, BinaryWord α) ⇒ α → α → Bool
 prop_trailingZeroesArb _ x
   | tz == 0   = testBit x 0
   | tz == bs  = x == 0
@@ -194,16 +190,14 @@ prop_succ t w = (w /= maxBound) ==> (succ w == withUnary t succ w)
 prop_pred t w = (w /= minBound) ==> (pred w == withUnary t pred w)
 
 prop_unwrappedAdd ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
-                     UnwrappedAdd α, UnwrappedAdd τ,
-                     Eq α, Eq (UnsignedWord α))
+                     BinaryWord α, BinaryWord τ, Eq α, Eq (UnsignedWord α))
                   ⇒ τ → α → α → Bool
 prop_unwrappedAdd t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
   where (h1, l1) = unwrappedAdd x y
         (h2, l2) = unwrappedAdd (toType t x) (toType t y)
 
 prop_unwrappedMul ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
-                     UnwrappedMul α, UnwrappedMul τ,
-                     Eq α, Eq (UnsignedWord α))
+                     BinaryWord α, BinaryWord τ, Eq α, Eq (UnsignedWord α))
                   ⇒ τ → α → α → Bool
 prop_unwrappedMul t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
   where (h1, l1) = unwrappedMul x y
