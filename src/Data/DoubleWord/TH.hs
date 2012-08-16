@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -213,9 +212,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                     [ValD (VarP next)
                           (NormalB $ appV '(+) [VarE c, litI 1]) []]
               ]
-#ifdef HAVE_TH_INLINABLE
         , inlinable 'enumFromTo
-#endif
         {-
           enumFromThenTo x y z = case y `compare` x of 
               LT → if z > x then [] else down (x - y) z x
@@ -263,9 +260,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                                  (ConE '[]) (appVN up [step, to, next])
                          ])
                     [ValD (VarP next) (NormalB $ appVN '(+) [c, step]) []]]
-#ifdef HAVE_TH_INLINABLE
         , inlinable 'enumFromThenTo
-#endif
         ]
     , inst ''Num [tp]
         {-
@@ -369,9 +364,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                   , appV '(+)
                       [appV 'toInteger [SigE (VarE 'maxBound) loT], litI 1]
                   ])]
-#ifdef HAVE_TH_INLINABLE
         , inlinable 'fromInteger
-#endif
         ]
     , inst ''Real [tp]
         {- toRational x = toInteger x % 1 -}
@@ -1044,12 +1037,10 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                appV '(-) [ VarE x
                          , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
         , inline 'testBit
-#if MIN_VERSION_base(4,5,0)
         {- popCount (W hi lo) = popCount hi + popCount lo -}
         , funHiLo 'popCount
             (appV '(+) [appVN 'popCount [hi], appVN 'popCount [lo]])
         , inline 'popCount
-#endif
         ]
     , inst ''BinaryWord [tp]
         [ TySynInstD ''UnsignedWord [ConT tp] $
@@ -1332,12 +1323,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                      (NormalB e) ds]
     match' p e ds = Match p (NormalB e) ds
     match p e     = match' p e []
-#ifdef HAVE_TH_INLINABLE
-    inline n = PragmaD $ InlineP n $ InlineSpec Inline False Nothing
-    inlinable n = PragmaD $ InlineP n $ InlineSpec Inlinable False Nothing
-#else
-    inline n = PragmaD $ InlineP n $ InlineSpec True False Nothing
-#endif
+    inline n = PragmaD $ InlineP n Inline FunLike AllPhases
+    inlinable n = PragmaD $ InlineP n Inlinable FunLike AllPhases
     val n e   = ValD (VarP n) (NormalB e) []
     vals ns e = ValD (TupP (VarP <$> ns)) (NormalB e) []
     app f   = foldl AppE f

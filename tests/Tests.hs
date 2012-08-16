@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -107,9 +106,7 @@ isoTestGroup name t =
         , testProperty "clearBit" $ prop_clearBit t
         , testProperty "complementBit" $ prop_complementBit t
         , testProperty "testBit" $ prop_testBit t
-#if MIN_VERSION_base(4,5,0)
         , testProperty "popCount" $ prop_popCount t
-#endif
         ]
     , testGroup "BinaryWord"
         [ testProperty "unwrappedAdd" $ prop_unwrappedAdd t
@@ -239,9 +236,7 @@ prop_clearBit = propBits clearBit clearBit
 prop_complementBit = propBits complementBit complementBit
 prop_testBit t w =
   all (\b → testBit w b == withUnary' t (`testBit` b) w) [0 .. bitSize t - 1]
-#if MIN_VERSION_base(4,5,0)
 prop_popCount = propUnary' popCount popCount
-#endif
 
 prop_leadingZeroes = propUnary' leadingZeroes leadingZeroes
 prop_trailingZeroes = propUnary' trailingZeroes trailingZeroes

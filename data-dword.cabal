@@ -27,12 +27,10 @@ Source-Repository head
 Library
   Default-Language: Haskell2010
   Build-Depends:
-    base             >= 4 && < 5,
+    base             >= 4.5 && < 5,
     hashable         >= 1.1,
-    template-haskell
-  if impl(ghc >= 7.5)
-    Build-Depends: ghc-prim
-    CPP-Options: -DHAVE_TH_INLINABLE
+    template-haskell >= 2.8,
+    ghc-prim
   Hs-Source-Dirs: src
   GHC-Options: -Wall
   Exposed-Modules:
@@ -45,7 +43,7 @@ Test-Suite tests
   Default-Language: Haskell2010
   Type: exitcode-stdio-1.0
   Build-Depends:
-    base                       >= 4 && < 5,
+    base                       >= 4.5 && < 5,
     test-framework             >= 0.5,
     test-framework-quickcheck2 >= 0.2,
     QuickCheck                 >= 2.4,
