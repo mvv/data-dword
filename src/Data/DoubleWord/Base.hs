@@ -24,14 +24,23 @@ import GHC.Word (Word64(..))
 # endif
 #endif
 
+-- | Extra bit-manipulation functions for binary words of fixed length.
 class Bits w ⇒ BinaryWord w where
+  -- | The unsigned variant type
   type UnsignedWord w
+  -- | The signed variant type
   type SignedWord w
+  -- | Convert the word to the unsigned type (identical to 'fromIntegral')
   unsignedWord ∷ w → UnsignedWord w
+  -- | Convert the word to the signed type (identical to 'fromIntegral')
   signedWord ∷ w → SignedWord w
+  -- | Unwrapped addition
   unwrappedAdd ∷ w → w → (w, UnsignedWord w)
+  -- | Unwrapped multiplication
   unwrappedMul ∷ w → w → (w, UnsignedWord w)
+  -- | Number of leading (from MSB) zero bits
   leadingZeroes ∷ w → Int
+  -- | Number or trailing (from LSB) zero bits
   trailingZeroes ∷ w → Int
 
 instance BinaryWord Word8 where
@@ -337,11 +346,17 @@ instance BinaryWord Int64 where
   trailingZeroes = trailingZeroes . unsignedWord
   {-# INLINE trailingZeroes #-}
 
+-- | Defines a particular way to split a binary word in halves.
 class BinaryWord w ⇒ DoubleWord w where
+  -- | The low half type
   type LoWord w
+  -- | The high half type
   type HiWord w
+  -- | The low half of the word
   loWord      ∷ w → LoWord w
+  -- | The high half of the word
   hiWord      ∷ w → HiWord w
+  -- | Construct a word from the low and high halves
   fromHiAndLo ∷ HiWord w → LoWord w → w
 
 instance DoubleWord Word16 where

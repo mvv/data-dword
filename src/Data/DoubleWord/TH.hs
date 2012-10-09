@@ -1,6 +1,7 @@
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE TemplateHaskell #-}
 
+-- | Template Haskell utilities for generating double words declarations
 module Data.DoubleWord.TH
   ( mkDoubleWord
   , mkUnpackedDoubleWord
@@ -14,7 +15,12 @@ import Control.Applicative ((<$>), (<*>))
 import Language.Haskell.TH hiding (match)
 import Data.DoubleWord.Base
 
--- |
+-- | Declare signed and unsigned binary word types built from
+--   the specified low and high halves. The high halves /must/ have
+--   less or equal bit-length than the lover half. For each data type
+--   the following instances are declared: 'DoubleWord', 'Eq', 'Ord',
+--   'Bounded', 'Enum', 'Num', 'Real', 'Integral', 'Show', 'Hashable',
+--   'Ix', 'Bits', 'BinaryWord'.
 mkDoubleWord ∷ String -- ^ Unsigned variant type name
              → String -- ^ Unsigned variant constructor name
              → Strict -- ^ Unsigned variant higher half strictness
@@ -34,7 +40,8 @@ mkDoubleWord un uc uhs uhn sn sc shs shn ls ln =
         sn' = mkName sn
         sc' = mkName sc
 
--- |
+-- | @'mkUnpackedDoubleWord' u uh s sh l@ is an alias for
+--   @'mkDoubleWord' u u 'Unpacked' uh s s 'Unpacked' sh 'Unpacked' l@
 mkUnpackedDoubleWord ∷ String -- ^ Unsigned variant type name
                      → Name   -- ^ Unsigned variant higher half type
                      → String -- ^ Signed variant type name
