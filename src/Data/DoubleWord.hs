@@ -7,18 +7,18 @@
 --   160, 192, 224, and 256 bits.
 module Data.DoubleWord
   ( module Data.DoubleWord.Base
-  , Word96
-  , Word128
-  , Word160
-  , Word192
-  , Word224
-  , Word256
-  , Int96
-  , Int128
-  , Int160
-  , Int192
-  , Int224
-  , Int256
+  , Word96(..)
+  , Word128(..)
+  , Word160(..)
+  , Word192(..)
+  , Word224(..)
+  , Word256(..)
+  , Int96(..)
+  , Int128(..)
+  , Int160(..)
+  , Int192(..)
+  , Int224(..)
+  , Int256(..)
   ) where
 
 import Data.Word

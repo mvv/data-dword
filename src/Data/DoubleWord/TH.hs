@@ -10,6 +10,8 @@ module Data.DoubleWord.TH
 import GHC.Arr (Ix(..))
 import Data.Ratio ((%))
 import Data.Bits (Bits(..))
+import Data.Word (Word8, Word16, Word32, Word64)
+import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Hashable (Hashable(..), combine)
 import Control.Applicative ((<$>), (<*>))
 import Language.Haskell.TH hiding (match)
@@ -57,17 +59,30 @@ mkDoubleWord' ∷ Bool
               → Strict → Type
               → Strict → Type
               → Q [Dec]
-mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
+mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
     [ DataD [] tp [] [NormalC cn [(hiS, hiT), (loS, loT)]] []
     , inst ''DoubleWord [tp]
-        [ TySynInstD ''LoWord [ConT tp] loT
-        , TySynInstD ''HiWord [ConT tp] hiT
+        [ TySynInstD ''LoWord [tpT] loT
+        , TySynInstD ''HiWord [tpT] hiT
         , funLo 'loWord (VarE lo)
         , inline 'loWord
         , funHi 'hiWord (VarE hi)
         , inline 'hiWord
         , fun 'fromHiAndLo (ConE cn)
-        , inline 'fromHiAndLo ]
+        , inline 'fromHiAndLo
+        {- extendLo x = W allZeroes x -}
+        , funX 'extendLo $ appWN ['allZeroes, x]
+        , inline 'extendLo
+        {-
+          signExtendLo x = W (if x < 0 then allOnes else allZeroes)
+                             (unsignedWord x)
+        -}
+        , funX 'signExtendLo $
+            appW [ CondE (appVN 'testMsb [x])
+                         (VarE 'allOnes) (VarE 'allZeroes)
+                 , appVN 'unsignedWord [x] ]
+        , inlinable 'signExtendLo
+        ]
     , inst ''Eq [tp] $
         {- (W hi lo) == (W hi' lo') = hi == hi' && lo == lo' -}
         [ funHiLo2 '(==) $
@@ -118,10 +133,10 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         , funX 'toEnum $
             CondE (appV '(<) [VarE x, litI 0])
                   (if signed
-                   then appW [ litI (-1)
+                   then appW [ VarE 'allOnes
                              , appV 'negate
                                  [ appV '(+)
-                                     [ litI 1
+                                     [ oneE
                                      , appV 'toEnum
                                          [ appV 'negate
                                              [appV '(+) [VarE x, litI 1]] ]
@@ -129,7 +144,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                                  ]
                              ]
                    else appV 'error [litS "toEnum: nagative value"])
-                  (appW [litI 0, appVN 'toEnum [x]])
+                  (appW [VarE 'allZeroes, appVN 'toEnum [x]])
         , inline 'toEnum
         {-
           fromEnum (W 0 lo)    = fromEnum lo
@@ -207,7 +222,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                                  (ConE '[]) (appVN down [to, next])
                          ])
                     [ValD (VarP next)
-                          (NormalB $ appV '(-) [VarE c, litI 1]) []]
+                          (NormalB $ appVN '(-) [c, 'lsb]) []]
               , FunD up $ return $
                   Clause [VarP to, VarP c]
                     (NormalB $
@@ -217,7 +232,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                                  (ConE '[]) (appVN up [to, next])
                          ])
                     [ValD (VarP next)
-                          (NormalB $ appV '(+) [VarE c, litI 1]) []]
+                          (NormalB $ appVN '(+) [c, 'lsb]) []]
               ]
         , inlinable 'enumFromTo
         {-
@@ -275,9 +290,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                                         else W (negate $ hi + 1) (negate lo)
         -}
         [ funHiLo 'negate $
-            CondE (appV '(==) [VarE lo, litI 0])
-                  (appW [appVN 'negate [hi], litI 0])
-                  (appW [ appV 'negate [appV '(+) [litI 1, VarE hi]]
+            CondE (appVN '(==) [lo, 'allZeroes])
+                  (appW [appVN 'negate [hi], zeroE])
+                  (appW [ appV 'negate [appVN '(+) ['lsb, hi]]
                         , appVN 'negate [lo] ])
         , inline 'negate
         {- 
@@ -287,7 +302,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         -}
         , funX 'abs $
             if signed
-            then CondE (appV '(<) [VarE x, litI 0])
+            then CondE (appVN '(<) [x, 'allZeroes])
                        (appVN 'negate [x]) (VarE x)
             else VarE x
         , inline 'abs
@@ -295,26 +310,24 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
           signum (W hi lo) = if SIGNED
                              then case hi `compare` 0 of
                                LT → W (-1) maxBound
-                               EQ → if lo == 0 then W 0 0 else W 0 1
+                               EQ → if lo == 0 then 0 else 1
                                GT → W 0 1
-                             else if hi == 0 && lo == 0 then W 0 0 else W 0 1
+                             else if hi == 0 && lo == 0 then 0 else 1
         -}
         , funHiLo 'signum $
             if signed
-            then CaseE (appV 'compare [VarE hi, litI 0])
+            then CaseE (appVN 'compare [hi, 'allZeroes])
                    [ Match (ConP 'LT [])
-                           (NormalB $ appW [litI (-1), VarE 'maxBound]) []
+                           (NormalB $ appWN ['allOnes, 'maxBound]) []
                    , Match (ConP 'EQ [])
-                           (NormalB $ CondE (appV '(==) [VarE lo, litI 0])
-                                            (appW [litI 0, litI 0])
-                                            (appW [litI 0, litI 1]))
+                           (NormalB $ CondE (appVN '(==) [lo, 'allZeroes])
+                                            zeroE oneE)
                            []
-                   , Match (ConP 'GT [])
-                           (NormalB $ appW [litI 0, litI 1]) []
+                   , Match (ConP 'GT []) (NormalB oneE) []
                    ]
-            else CondE (appV '(&&) [ appV '(==) [VarE hi, litI 0]
-                                   , appV '(==) [VarE lo, litI 0] ])
-                       (appW [litI 0, litI 0]) (appW [litI 0, litI 1])
+            else CondE (appV '(&&) [ appVN '(==) [hi, 'allZeroes]
+                                   , appVN '(==) [lo, 'allZeroes] ])
+                       zeroE oneE
         , inline 'signum
         {-
           (W hi lo) + (W hi' lo') = W y x
@@ -325,9 +338,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
             [ val x $ appVN '(+) [lo, lo']
             , val y $ appV '(+)
                         [ appVN '(+) [hi, hi']
-                        , CondE (appVN '(<) [x, lo]) (litI 1) (litI 0) ]
+                        , CondE (appVN '(<) [x, lo]) oneE zeroE ]
             ]
-        , inline '(+)
+        , inlinable '(+)
         {-
           UNSIGNED:
             (W hi lo) * (W hi' lo') =
@@ -336,19 +349,14 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               where (x, y) = unwrappedMul lo lo'
 
           SIGNED:
-            (W hi lo) * (W hi' lo') = W (fromIntegral x) y
-              where U x y = U (fromIntegral hi) lo * U (fromIntegral hi') lo'
+            x * y = signedWord $ unsignedWord x * unsignedWord y
         -}
         , if signed
           then
-            funHiLo2' '(*)
-              (appW [appVN 'fromIntegral [x], VarE y])
-              [ValD (ConP ocn [VarP x, VarP y])
-                (NormalB $
-                  appV '(*)
-                    [ appC ocn [appVN 'fromIntegral [hi], VarE lo]
-                    , appC ocn [appVN 'fromIntegral [hi'], VarE lo'] ])
-                []]
+            funXY '(*) $
+              appV 'signedWord
+                   [appV '(*) [ appVN 'unsignedWord [x]
+                              , appVN 'unsignedWord [y] ]]
           else
             funHiLo2' '(*)
               (appW [ appV '(+)
@@ -358,7 +366,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                         , appVN 'fromIntegral [x] ]
                     , VarE y ])
               [vals [x, y] (appVN 'unwrappedMul [lo, lo'])]
-        , inline '(*)
+        , inlinable '(*)
         {-
           fromInteger x = W (fromInteger y) (fromInteger z)
             where (y, z) = x `divMod` (toInteger (maxBound ∷ L) + 1)
@@ -478,132 +486,130 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
 
           SIGNED:
             quotRem x y =
-              if x >= 0
+              if x < 0
               then
-                if y >= 0
-                then let (q, r) = quotRem (fromIntegral x ∷ U)
-                                          (fromIntegral y) in
-                       (fromIntegral q, fromIntegral r)
-                else let (q, r) = quotRem (fromIntegral x ∷ U)
-                                          (negate $ fromIntegral y) in
-                       (fromIntegral $ negate q, fromIntegral r)
+                if y < 0
+                then let (q, r) = quotRem (negate $ unsignedWord x)
+                                          (negate $ unsignedWord y) in
+                       (signedWord q, signedWord $ negate r)
+                else let (q, r) = quotRem (negate $ unsignedWord x)
+                                          (unsignedWord y) in
+                       (signedWord $ negate q, signedWord $ negate r)
               else
-                if y >= 0
-                then let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
-                                          (fromIntegral y) in
-                       (fromIntegral $ negate q, fromIntegral $ negate r)
-                else let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
-                                          (negate $ fromIntegral y) in
-                       (fromIntegral q, fromIntegral $ negate r)
+                if y < 0
+                then let (q, r) = quotRem (unsignedWord x)
+                                          (negate $ unsignedWord y) in
+                       (signedWord $ negate q, signedWord r)
+                else let (q, r) = quotRem (unsignedWord x)
+                                          (unsignedWord y) in
+                       (signedWord q, signedWord r)
         -}
         , if signed
           then
             funXY 'quotRem $
-              CondE (appV '(>=) [VarE x, litI 0])
-                (CondE (appV '(>=) [VarE y, litI 0])
+              CondE (appVN 'testMsb [x])
+                (CondE (appVN 'testMsb [y])
                    (LetE [vals [q, r] $
                             appV 'quotRem
-                              [ SigE (appVN 'fromIntegral [x]) (ConT otp)
-                              , appVN 'fromIntegral [y] ]]
-                      (TupE [ appVN 'fromIntegral [q]
-                            , appVN 'fromIntegral [r] ]))
+                              [ appV 'unsignedWord [appVN 'negate [x]]
+                              , appV 'unsignedWord [appVN 'negate [y]] ]]
+                      (TupE [ appVN 'signedWord [q]
+                            , appV 'signedWord [appVN 'negate [r]] ]))
                    (LetE [vals [q, r] $
                             appV 'quotRem
-                              [ SigE (appVN 'fromIntegral [x]) (ConT otp)
-                              , appV 'fromIntegral [appVN 'negate [y]] ]]
-                      (TupE [ appV 'fromIntegral [appVN 'negate [q]]
-                            , appVN 'fromIntegral [r] ])))
-                (CondE (appV '(>=) [VarE y, litI 0])
+                              [ appV 'unsignedWord [appVN 'negate [x]]
+                              , appVN 'unsignedWord [y] ]]
+                      (TupE [ appV 'signedWord [appVN 'negate [q]]
+                            , appV 'signedWord [appVN 'negate [r]] ])))
+                (CondE (appVN 'testMsb [y])
                    (LetE [vals [q, r] $
                             appV 'quotRem
-                              [ SigE (appV 'fromIntegral [appVN 'negate [x]])
-                                     (ConT otp)
-                              , appVN 'fromIntegral [y] ]]
-                      (TupE [ appV 'fromIntegral [appVN 'negate [q]]
-                            , appV 'fromIntegral [appVN 'negate [r]] ]))
+                              [ appVN 'unsignedWord [x]
+                              , appV 'unsignedWord [appVN 'negate [y]] ]]
+                      (TupE [ appV 'signedWord [appVN 'negate [q]]
+                            , appVN 'signedWord [r] ]))
                    (LetE [vals [q, r] $
                             appV 'quotRem
-                              [ SigE (appV 'fromIntegral [appVN 'negate [x]])
-                                     (ConT otp)
-                              , appV 'fromIntegral [appVN 'negate [y]] ]]
-                      (TupE [ appVN 'fromIntegral [q]
-                            , appV 'fromIntegral [appVN 'negate [r]] ])))
+                              [ appVN 'unsignedWord [x]
+                              , appVN 'unsignedWord [y] ]]
+                      (TupE [ appVN 'signedWord [q]
+                            , appVN 'signedWord [r] ])))
           else
             funHiLo2XY' 'quotRem
-              (CondE (appV '(&&) [ appV '(==) [VarE hi', litI 0]
-                                 , appV '(==) [VarE lo', litI 0] ])
+              (CondE (appV '(&&) [ appVN '(==) [hi', 'allZeroes]
+                                 , appVN '(==) [lo', 'allZeroes] ])
                  (appV 'error [litS "divide by zero"])
                  (CaseE (appVN 'compare [hi, hi'])
-                    [ match (ConP 'LT []) (TupE [litI 0, VarE x])
+                    [ match (ConP 'LT []) (TupE [zeroE, VarE x])
                     , match (ConP 'EQ [])
                         (CaseE (appVN 'compare [lo, lo'])
-                           [ match (ConP 'LT []) (TupE [litI 0, VarE x])
-                           , match (ConP 'EQ []) (TupE [litI 1, litI 0])
+                           [ match (ConP 'LT []) (TupE [zeroE, VarE x])
+                           , match (ConP 'EQ []) (TupE [oneE, zeroE])
                            , Match (ConP 'GT [])
                                (GuardedB $ return
-                                  ( NormalG (appV '(==) [VarE hi', litI 0])
-                                  , TupE [ appW [litI 0, VarE t2]
-                                         , appW [litI 0, VarE t1] ]))
+                                  ( NormalG (appVN '(==) [hi', 'allZeroes])
+                                  , TupE [ appWN ['allZeroes, t2]
+                                         , appWN ['allZeroes, t1] ]))
                                [vals [t2, t1] $ appVN 'quotRem [lo, lo']]
                            , match (ConP 'GT []) $
-                               TupE [ litI 1
-                                    , appW [litI 0, appVN '(-) [lo, lo']] ]
+                               TupE [ oneE
+                                    , appW [zeroE, appVN '(-) [lo, lo']] ]
                            ])
                     , Match (ConP 'GT [])
                         (GuardedB $ return
-                           ( NormalG (appV '(==) [VarE lo', litI 0])
+                           ( NormalG (appVN '(==) [lo', 'allZeroes])
                            , TupE
-                               [ appW [litI 0, appVN 'fromIntegral [t2]]
+                               [ appW [zeroE, appVN 'fromIntegral [t2]]
                                , appW [appVN 'fromIntegral [t1], VarE lo]
                                ] ))
                         [vals [t2, t1] $ appVN 'quotRem [hi, hi']]
                     , Match (ConP 'GT [])
                         (GuardedB $ return
                            ( NormalG (appV '(&&)
-                                        [ appV '(==) [VarE hi', litI 0]
+                                        [ appVN '(==) [hi', 'allZeroes]
                                         , appVN '(==) [lo', 'maxBound] ])
-                           , CondE (appV '(==) [VarE t2, litI 0])
+                           , CondE (appVN '(==) [t2, 'allZeroes])
                                (CondE (appVN '(==) [t1, 'maxBound])
                                   (TupE
                                      [ appV '(+)
-                                         [ appW [litI 0, VarE z] 
-                                         , litI 1 ]
-                                     , litI 0 ])
+                                         [ appWN ['allZeroes, z] 
+                                         , oneE ]
+                                     , zeroE ])
                                   (TupE
-                                     [ appW [litI 0, VarE z]
-                                     , appW [litI 0, VarE t1] ]))
+                                     [ appWN ['allZeroes, z]
+                                     , appWN ['allZeroes, t1] ]))
                                (CondE (appVN '(==) [t1, 'maxBound])
                                   (TupE
                                      [ appV '(+)
-                                         [appW [litI 0, VarE z], litI 2]
-                                     , litI 1 ])
+                                         [appWN ['allZeroes, z], litI 2]
+                                     , oneE ])
                                   (CondE
                                      (appV '(==)
                                         [ VarE t1
-                                        , appV 'xor [VarE 'maxBound, litI 1]
+                                        , appVN 'xor ['maxBound, 'lsb]
                                         ])
                                      (TupE
                                         [ appV '(+)
-                                            [appW [litI 0, VarE z], litI 2]
-                                        , litI 0 ])
+                                            [appWN ['allZeroes, z], litI 2]
+                                        , zeroE ])
                                      (TupE
                                         [ appV '(+)
-                                            [appW [litI 0,VarE z], litI 1]
-                                        , appW [ litI 0
-                                               , appV '(+) [VarE t1, litI 1] ]
+                                            [appWN ['allZeroes, z], oneE]
+                                        , appW [ zeroE
+                                               , appVN '(+) [t1, 'lsb] ]
                                         ])))
                            ))
                         [ val z $ appVN 'fromIntegral [hi]
                         , vals [t2, t1] $ appVN 'unwrappedAdd [z, lo] ]
                     , Match (ConP 'GT [])
                         (GuardedB $ return
-                           ( NormalG (appV '(==) [VarE hi', litI 0])
-                           , TupE [VarE t2, appW [litI 0, VarE t1]] ))
+                           ( NormalG (appVN '(==) [hi', 'allZeroes])
+                           , TupE [VarE t2, appWN ['allZeroes, t1]] ))
                         [vals [t2, t1] $ appVN div1 [hi, lo, lo']]
                     , match' (ConP 'GT [])
                         (CondE (appVN '(==) [t1, t2])
-                               (TupE [litI 1, appVN '(-) [x, y]])
-                               (TupE [ appW [litI 0, appVN 'fromIntegral [q2]]
+                               (TupE [oneE, appVN '(-) [x, y]])
+                               (TupE [ appW [zeroE, appVN 'fromIntegral [q2]]
                                      , appVN 'shiftR [r2, t2] ]))
                         [ val t1 $ appVN 'leadingZeroes [hi]
                         , val t2 $ appVN 'leadingZeroes [hi']
@@ -630,42 +636,42 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                         , vals [t10, t9] $ appVN 'unwrappedAdd [t7, v]
                         , vals [q2, r2] $
                             CondE (appVN '(>) [t5, t6])
-                              (CondE (appV '(==) [appVN 'loWord [t8], litI 0])
+                              (CondE (appV '(==) [appVN 'loWord [t8], zeroE])
                                  (CondE (appVN '(>=) [t7, t5])
-                                    (TupE [ appV '(-) [VarE q1, litI 1]
+                                    (TupE [ appVN '(-) [q1, 'lsb]
                                           , appVN '(-) [t7, t5] ])
                                     (CondE (appV '(==) [ appVN 'loWord [t10]
-                                                       , litI 0 ])
+                                                       , zeroE ])
                                        (TupE [ appV '(-) [VarE q1, litI 2]
                                              , appVN '(-) [t9, t5] ])
                                        (TupE [ appV '(-) [VarE q1, litI 2]
                                              , appV '(+)
                                                  [ appVN '(-) ['maxBound, t5]
-                                                 , appV '(+) [VarE t9, litI 1]
+                                                 , appVN '(+) [t9, 'lsb]
                                                  ]
                                              ])))
-                                 (TupE [ appV '(-) [VarE q1, litI 1]
+                                 (TupE [ appVN '(-) [q1, 'lsb]
                                        , appV '(+)
                                            [ appVN '(-) ['maxBound, t5]
-                                           , appV '(+) [VarE t7, litI 1] ]
+                                           , appVN '(+) [t7, 'lsb] ]
                                        ]))
                               (TupE [VarE q1, appVN '(-) [t6, t5]])
                         ]
                     ]))
               [ FunD div1 $ return $
                   Clause [VarP hhh, VarP hll, VarP by]
-                    (NormalB (appV go [VarE hhh, VarE hll, litI 0]))
+                    (NormalB (appVN go [hhh, hll, 'allZeroes]))
                     [ vals [t2, t1] $ appVN 'quotRem ['maxBound, by]
                     , FunD go $ return $
                         Clause [VarP h, VarP l, VarP c]
                           (NormalB
-                             (CondE (appV '(==) [VarE z, litI 0])
+                             (CondE (appVN '(==) [z, 'allZeroes])
                                 (TupE [ appV '(+)
                                           [ VarE c
                                           , appV '(+)
                                               [ appW [ appVN 'fromIntegral [t8]
                                                      , VarE t7 ]
-                                              , appW [litI 0, VarE t10] ]
+                                              , appWN ['allZeroes, t10] ]
                                           ]
                                       , VarE t9 ])
                                 (appV go
@@ -680,7 +686,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                           [ val h1 $ appVN 'fromIntegral [h]
                           , vals [t4, t3] $
                               appV 'unwrappedMul
-                                [VarE h1, appV '(+) [VarE t1, litI 1]]
+                                [VarE h1, appVN '(+) [t1, 'lsb]]
                           , vals [t6, t5] $ appVN 'unwrappedAdd [t3, l]
                           , val z $ appVN '(+) [t4, t6]
                           , vals [t8, t7] $ appVN 'unwrappedMul [h1, t2]
@@ -690,17 +696,17 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                   Clause [VarP hhh, VarP hll, VarP by]
                     (NormalB (appV go [ VarE hhh
                                       , VarE hll
-                                      , TupE [litI 0, litI 0]]))
+                                      , TupE [zeroE, zeroE]]))
                     [ vals [t2, t1] $ appVN 'quotRem ['maxBound, by]
                     , FunD go $ return $
                         Clause [VarP h, VarP l, VarP c]
                           (NormalB
-                             (CondE (appV '(==) [VarE z, litI 0])
+                             (CondE (appVN '(==) [z, 'allZeroes])
                                 (TupE [ appV addT
                                           [ VarE c
                                           , appV addT
                                               [ TupE [VarE t8 , VarE t7]
-                                              , TupE [litI 0, VarE t10] ]
+                                              , TupE [zeroE, VarE t10] ]
                                           ]
                                       , VarE t9 ])
                                 (appV go
@@ -713,7 +719,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                                    ])))
                           [ vals [t4, t3] $
                               appV 'unwrappedMul
-                                [VarE h, appV '(+) [VarE t1, litI 1]]
+                                [VarE h, appVN '(+) [t1, 'lsb]]
                           , vals [t6, t5] $ appVN 'unwrappedAdd [t3, l]
                           , val z $ appVN '(+) [t4, t6]
                           , vals [t8, t7] $ appVN 'unwrappedMul [h, t2]
@@ -737,74 +743,72 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
 
           SIGNED:
             divMod x y =
-              if x >= 0
+              if x < 0
               then
-                if y >= 0
-                then let (q, r) = quotRem (fromIntegral x ∷ U)
-                                          (fromIntegral y) in
-                       (fromIntegral q, fromIntegral r)
-                else let (q, r) = quotRem (fromIntegral x ∷ U)
-                                          (negate $ fromIntegral y)
-                         q1 = fromIntegral (negate q)
-                         r1 = fromIntegral r in
+                if y < 0
+                then let (q, r) = quotRem (negate $ unsignedWord x)
+                                          (negate $ unsignedWord y) in
+                       (signedWord q, signedWord $ negate r)
+                else let (q, r) = quotRem (negate $ unsignedWord x)
+                                          (unsignedWord y)
+                         q1 = signedWord (negate q)
+                         r1 = signedWord (negate r) in
                        if r == 0
                        then (q1, r1)
                        else (q1 - 1, r1 + y)
-              else
-                if y >= 0
-                then let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
-                                          (fromIntegral y)
-                         q1 = fromIntegral (negate q)
-                         r1 = fromIntegral (negate r) in
+              else 
+                if y < 0
+                then let (q, r) = quotRem (unsignedWord x)
+                                          (negate $ unsignedWord y)
+                         q1 = signedWord (negate q)
+                         r1 = signedWord r in
                        if r == 0
                        then (q1, r1)
                        else (q1 - 1, r1 + y)
-                else let (q, r) = quotRem (negate $ fromIntegral x ∷ U)
-                                          (negate $ fromIntegral y) in
-                       (fromIntegral q, fromIntegral $ negate r)
+                else let (q, r) = quotRem (unsignedWord x)
+                                          (unsignedWord y) in
+                       (signedWord q, signedWord r)
         -}
         , if signed
           then
             funXY 'divMod $
-              CondE (appV '(>=) [VarE x, litI 0])
-                (CondE (appV '(>=) [VarE y, litI 0])
+              CondE (appVN 'testMsb [x])
+                (CondE (appVN 'testMsb [y])
                    (LetE [vals [q, r] $
                             appV 'quotRem
-                              [ SigE (appVN 'fromIntegral [x]) (ConT otp)
-                              , appVN 'fromIntegral [y] ]]
-                      (TupE [ appVN 'fromIntegral [q]
-                            , appVN 'fromIntegral [r] ]))
+                              [ appV 'unsignedWord [appVN 'negate [x]]
+                              , appV 'unsignedWord [appVN 'negate [y]] ]]
+                      (TupE [ appVN 'signedWord [q]
+                            , appV 'signedWord [appVN 'negate [r]] ]))
                    (LetE [ vals [q, r] $
                              appV 'quotRem
-                               [ SigE (appVN 'fromIntegral [x]) (ConT otp)
-                               , appV 'fromIntegral [appVN 'negate [y]] ]
-                         , val q1 $ appV 'fromIntegral [appVN 'negate [q]]
-                         , val r1 $ appVN 'fromIntegral [r]
+                               [ appV 'unsignedWord [appVN 'negate [x]]
+                               , appVN 'unsignedWord [y] ]
+                         , val q1 $ appV 'signedWord [appVN 'negate [q]]
+                         , val r1 $ appV 'signedWord [appVN 'negate [r]]
                          ]
-                      (CondE (appV '(==) [VarE r, litI 0])
+                      (CondE (appVN '(==) [r, 'allZeroes])
                          (TupE [VarE q1, VarE r1])
-                         (TupE [ appV '(-) [VarE q1, litI 1]
+                         (TupE [ appVN '(-) [q1, 'lsb]
                                , appVN '(+) [r1, y] ]))))
-                (CondE (appV '(>=) [VarE y, litI 0])
+                (CondE (appVN 'testMsb [y])
                    (LetE [ vals [q, r] $
                              appV 'quotRem
-                               [ SigE (appV 'fromIntegral [appVN 'negate [x]])
-                                      (ConT otp)
-                               , appVN 'fromIntegral [y] ]
-                         , val q1 $ appV 'fromIntegral [appVN 'negate [q]]
-                         , val r1 $ appV 'fromIntegral [appVN 'negate [r]]
+                               [ appVN 'unsignedWord [x]
+                               , appV 'unsignedWord [appVN 'negate [y]] ]
+                         , val q1 $ appV 'signedWord [appVN 'negate [q]]
+                         , val r1 $ appVN 'signedWord [r]
                          ]
-                      (CondE (appV '(==) [VarE r, litI 0])
+                      (CondE (appVN '(==) [r, 'allZeroes])
                          (TupE [VarE q1, VarE r1])
-                         (TupE [ appV '(-) [VarE q1, litI 1]
+                         (TupE [ appVN '(-) [q1, 'lsb]
                                , appVN '(+) [r1, y] ])))
                    (LetE [vals [q, r] $
                             appV 'quotRem
-                              [ SigE (appV 'fromIntegral [appVN 'negate [x]])
-                                     (ConT otp)
-                              , appV 'fromIntegral [appVN 'negate [y]] ]]
-                      (TupE [ appVN 'fromIntegral [q]
-                            , appV 'fromIntegral [appVN 'negate [r]] ])))
+                              [ appVN 'unsignedWord [x]
+                              , appVN 'unsignedWord [y] ]]
+                      (TupE [ appVN 'signedWord [q]
+                            , appVN 'signedWord [r] ])))
           else
             fun 'divMod $ VarE 'quotRem
         , inline 'divMod
@@ -871,7 +875,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                       , appVN 'shiftL [lo, x] ])
                    (appW [ appV 'fromIntegral
                              [appV 'shiftL [VarE lo, appVN 'negate [y]]]
-                         , litI 0 ]))
+                         , zeroE ]))
             [val y $
                appV '(-) [ appV 'bitSize [SigE (VarE 'undefined) loT]
                          , VarE x ]]
@@ -921,18 +925,13 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               where y = x - bitSize (undefined ∷ L)
                     z = bitSize (undefined ∷ W) - x
           SIGNED:
-            rotateL (W hi lo) x = W (fromIntegral hi') lo'
-              where U hi' lo' = rotateL (U (fromIntegral hi) lo) x
+            rotateL x y = signedWord $ rotateL (unsignedWord x) y
         -}
         , if signed
           then
-           funHiLoX' 'rotateL
-             (appW [appVN 'fromIntegral [hi'], VarE lo'])
-             [ValD (ConP ocn [VarP hi', VarP lo'])
-                   (NormalB $
-                      appV 'rotateL
-                        [ appC ocn [appVN 'fromIntegral [hi], VarE lo]
-                        , VarE x ]) []]
+            funXY 'rotateL $
+              appV 'signedWord
+                   [appV 'rotateL [appVN 'unsignedWord [x], VarE y]]
           else 
             funHiLoX' 'rotateL
               (CondE (appV '(>=) [VarE y, litI 0])
@@ -968,7 +967,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                             , appV 'bitSize [SigE (VarE 'undefined) loT] ]
               , val z $
                   appV '(-)
-                    [ appV 'bitSize [SigE (VarE 'undefined) (ConT tp)]
+                    [ appV 'bitSize [SigE (VarE 'undefined) tpT]
                     , VarE x ]
               ]
         {- rotateR x y = rotateL x $ bitSize (undefined ∷ W) - y -}
@@ -976,7 +975,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
             appV 'rotateL
               [ VarE x
               , appV '(-)
-                  [appV 'bitSize [SigE (VarE 'undefined) (ConT tp)], VarE y]
+                  [appV 'bitSize [SigE (VarE 'undefined) tpT], VarE y]
               ]
         , inline 'rotateR
         {-
@@ -984,8 +983,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
             where y = x - bitSize (undefined ∷ LoWord W)
         -}
         , funX' 'bit (CondE (appV '(>=) [VarE y, litI 0])
-                            (appW [appVN 'bit [y], litI 0])
-                            (appW [litI 0, appVN 'bit [x]]))
+                            (appW [appVN 'bit [y], zeroE])
+                            (appW [zeroE, appVN 'bit [x]]))
             [val y $
                appV '(-) [ VarE x
                          , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
@@ -1050,9 +1049,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
         , inline 'popCount
         ]
     , inst ''BinaryWord [tp]
-        [ TySynInstD ''UnsignedWord [ConT tp] $
+        [ TySynInstD ''UnsignedWord [tpT] $
             ConT $ if signed then otp else tp
-        , TySynInstD ''SignedWord [ConT tp] $
+        , TySynInstD ''SignedWord [tpT] $
             ConT $ if signed then tp else otp
         {-
           UNSIGNED:
@@ -1091,17 +1090,17 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
                     z = fromIntegral $ t3 + t4
           SIGNED:
             unwrappedAdd x y = (z, t4)
-              where t1 = if hiWord x < 0 then maxBound else minBound
-                    t2 = if hiWord y < 0 then maxBound else minBound
+              where t1 = if x < 0 then maxBound else minBound
+                    t2 = if y < 0 then maxBound else minBound
                     (t3, t4) = unwrappedAdd (unsignedWord x) (unsignedWord y)
                     z = signedWord $ t1 + t2 + t3
         -}
         , if signed
           then
             funXY' 'unwrappedAdd (TupE [VarE z, VarE t4])
-              [ val t1 $ CondE (appV '(<) [appVN 'hiWord [x], litI 0])
+              [ val t1 $ CondE (appVN 'testMsb [x])
                                (VarE 'maxBound) (VarE 'minBound)
-              , val t2 $ CondE (appV '(<) [appVN 'hiWord [y], litI 0])
+              , val t2 $ CondE (appVN 'testMsb [y])
                                (VarE 'maxBound) (VarE 'minBound)
               , vals [t3, t4] $
                   appV 'unwrappedAdd [ appVN 'unsignedWord [x]
@@ -1111,7 +1110,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               ]
           else
             funHiLo2' 'unwrappedAdd
-              (TupE [appW [litI 0, VarE z], appWN [y, x]])
+              (TupE [appWN ['allZeroes, z], appWN [y, x]])
               [ vals [t1, x] $ appVN 'unwrappedAdd [lo, lo']
               , vals [t3, t2] $
                   appV 'unwrappedAdd [VarE hi, appVN 'fromIntegral [t1]]
@@ -1157,22 +1156,22 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               [ val t1 $
                   appV '(+) [ appW [ appVN 'complement [hi']
                                    , appVN 'complement [lo'] ]
-                            , litI 1 ]
+                            , oneE ]
               , val t2 $
                   appV '(+) [ appW [ appVN 'complement [hi]
                                    , appVN 'complement [lo] ]
-                            , litI 1 ]
+                            , oneE ]
               , vals [t3, y] $
                   appV 'unwrappedMul
                     [ appC ocn [appVN 'unsignedWord [hi], VarE lo]
                     , appC ocn [appVN 'unsignedWord [hi'], VarE lo'] ]
               , val z $ appVN 'signedWord [t3]
               , val x $
-                  CondE (appV '(<) [VarE hi, litI 0])
-                    (CondE (appV '(<) [VarE hi', litI 0])
+                  CondE (appVN 'testMsb [hi])
+                    (CondE (appVN 'testMsb [hi'])
                        (appV '(+) [VarE z, appVN '(+) [t1, t2]])
                        (appVN '(+) [z, t1]))
-                    (CondE (appV '(<) [VarE hi', litI 0])
+                    (CondE (appVN 'testMsb [hi'])
                        (appVN '(+) [z, t2]) (VarE z))
               ]
           else
@@ -1251,6 +1250,24 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
               , val y $ appV 'bitSize [SigE (VarE 'undefined) loT]
               ]
         , inline 'trailingZeroes
+        {- allZeroes = W allZeroes allZeroes -}
+        , fun 'allZeroes $ appWN ['allZeroes, 'allZeroes]
+        , inline 'allZeroes
+        {- allOnes = W allOnes allOnes -}
+        , fun 'allOnes $ appWN ['allOnes, 'allOnes]
+        , inline 'allOnes
+        {- msb = W msb allZeroes -}
+        , fun 'msb $ appWN ['msb, 'allZeroes]
+        , inline 'msb
+        {- lsb = W allZeroes lsb -}
+        , fun 'lsb $ appWN ['allZeroes, 'lsb]
+        , inline 'lsb
+        {- testMsb (W hi _) = testMsb hi -}
+        , funHi 'testMsb $ appVN 'testMsb [hi]
+        , inline 'testMsb
+        {- testLsb (W _ lo) = testLsb lo -}
+        , funLo 'testLsb $ appVN 'testLsb [lo]
+        , inline 'testLsb
         ]
     ]
   where
@@ -1300,6 +1317,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     lo   = mkName "lo"
     hi'  = mkName "hi'"
     lo'  = mkName "lo'"
+    tpT  = ConT tp
     inst cls params = InstanceD [] (foldl AppT (ConT cls) (ConT <$> params))
     fun n e       = FunD n [Clause [] (NormalB e) []]
     fun_ n e      = FunD n [Clause [WildP] (NormalB e) []]
@@ -1344,4 +1362,96 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = return $
     appWN   = appCN cn
     litI = LitE . IntegerL
     litS = LitE . StringL
+    zeroE = VarE 'allZeroes
+    oneE  = VarE 'lsb
+    mkRules = do
+      let idRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ show tp) []
+                         (VarE 'fromIntegral)
+                         (SigE (VarE 'id) (AppT (AppT ArrowT tpT) tpT))
+                         AllPhases
+      mkRules' [idRule] loT
+               (VarE 'loWord)
+               (VarE 'extendLo)
+               (VarE 'signExtendLo)
+    mkRules' rules t narrowE extE signExtE = do
+      let narrowRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ showT t)
+                             []
+                             (VarE 'fromIntegral)
+                             (SigE narrowE (AppT (AppT ArrowT tpT) t))
+                             AllPhases
+          extRule = RuleP ("fromIntegral/" ++ showT t ++ "->" ++ show tp)
+                          []
+                          (VarE 'fromIntegral)
+                          (SigE extE (AppT (AppT ArrowT t) tpT))
+                          AllPhases
+      signedRules ← do
+        insts ← reifyInstances ''SignedWord [t]
+        case insts of
+          [TySynInstD _ _ signT] → return $
+            [ RuleP ("fromIntegral/" ++ show tp ++ "->" ++ showT signT)
+                    []
+                    (VarE 'fromIntegral)
+                    (SigE (AppE (appVN '(.) ['signedWord]) narrowE)
+                          (AppT (AppT ArrowT tpT) signT))
+                    AllPhases
+            , RuleP ("fromIntegral/" ++ showT signT ++ "->" ++ show tp)
+                    []
+                    (VarE 'fromIntegral)
+                    (SigE signExtE (AppT (AppT ArrowT signT) tpT))
+                    AllPhases ]
+          _ → return []
+      let rules' = narrowRule : extRule : signedRules ++ rules
+      case smallerStdTypes t of
+        Just ts → do
+          let smallRules = ts >>= \(uSmallName, sSmallName) →
+                let uSmallT = ConT uSmallName
+                    sSmallT = ConT sSmallName in
+                [ RuleP ("fromIntegral/" ++
+                         show tp ++ "->" ++ show uSmallName)
+                        []
+                        (VarE 'fromIntegral)
+                        (SigE (appV '(.) [VarE 'fromIntegral, narrowE])
+                              (AppT (AppT ArrowT tpT) uSmallT))
+                        AllPhases
+                , RuleP ("fromIntegral/" ++
+                         show uSmallName ++ "->" ++ show tp)
+                        []
+                        (VarE 'fromIntegral)
+                        (SigE (appV '(.) [extE, VarE 'fromIntegral])
+                              (AppT (AppT ArrowT uSmallT) tpT))
+                        AllPhases
+                , RuleP ("fromIntegral/" ++
+                         show tp ++ "->" ++ show sSmallName)
+                        []
+                        (VarE 'fromIntegral)
+                        (SigE (appV '(.) [VarE 'fromIntegral, narrowE])
+                              (AppT (AppT ArrowT tpT) sSmallT))
+                        AllPhases
+                , RuleP ("fromIntegral/" ++
+                         show sSmallName ++ "->" ++ show tp)
+                        []
+                        (VarE 'fromIntegral)
+                        (SigE (appV '(.) [signExtE, VarE 'fromIntegral])
+                              (AppT (AppT ArrowT sSmallT) tpT))
+                        AllPhases
+                ]
+          return $ PragmaD <$> rules' ++ smallRules
+        _ → do
+          insts ← reifyInstances ''LoWord [t]
+          case insts of
+            [TySynInstD _ _ t'] →
+              mkRules' rules' t'
+                       (appV '(.) [VarE 'loWord, narrowE])
+                       (appV '(.) [VarE 'extendLo, extE])
+                       (appV '(.) [VarE 'signExtendLo, signExtE])
+            _ → return $ PragmaD <$> rules'
+    showT (ConT n) = show n
+    showT t = show t
+    stdTypes = [(''Word64, ''Int64), (''Word32, ''Int32),
+                (''Word16, ''Int16), (''Word8, ''Int8)]
+    smallerStdTypes t = smallerStdTypes' t stdTypes
+    smallerStdTypes' _ [] = Nothing
+    smallerStdTypes' t ((ut, _) : ts)
+      | ConT ut == t = Just ts
+      | otherwise    = smallerStdTypes' t ts
 

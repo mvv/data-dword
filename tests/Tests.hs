@@ -45,7 +45,11 @@ instance Iso Int64 II64 where
                                    .|. fromIntegral ll
 
 main = defaultMainWithOpts
-         [ arbTestGroup "Word32" (0 ∷ Word32)
+         [ arbTestGroup "Word8" (0 ∷ Word8)
+         , arbTestGroup "Int8" (0 ∷ Int8)
+         , arbTestGroup "Word16" (0 ∷ Word16)
+         , arbTestGroup "Int16" (0 ∷ Int16)
+         , arbTestGroup "Word32" (0 ∷ Word32)
          , arbTestGroup "Int32" (0 ∷ Int32)
          , arbTestGroup "Word64" (0 ∷ Word64)
          , arbTestGroup "Int64" (0 ∷ Int64)
@@ -64,7 +68,13 @@ arbTestGroup name t =
         [ testProperty "unwrappedAdd" $ prop_unwrappedAddArb t
         , testProperty "unwrappedMul" $ prop_unwrappedMulArb t
         , testProperty "leadingZeroes" $ prop_leadingZeroesArb t
-        , testProperty "trailingZeroes" $ prop_trailingZeroesArb t ]
+        , testProperty "trailingZeroes" $ prop_trailingZeroesArb t
+        , testProperty "allZeroes" $ prop_allZeroesArb t
+        , testProperty "allOnes" $ prop_allOnesArb t
+        , testProperty "msb" $ prop_msbArb t
+        , testProperty "lsb" $ prop_lsbArb t
+        , testProperty "testMsb" $ prop_testMsbArb t
+        , testProperty "testLsb" $ prop_testLsbArb t ]
     ]
 
 isoTestGroup name t =
@@ -91,7 +101,11 @@ isoTestGroup name t =
     , testGroup "Integral"
         [ testProperty "toInteger" $ prop_toInteger t
         , testProperty "quotRem" $ prop_quotRem t
-        , testProperty "divMod" $ prop_divMod t ]
+        , testProperty "quot" $ prop_quot t
+        , testProperty "rem" $ prop_rem t
+        , testProperty "divMod" $ prop_divMod t
+        , testProperty "div" $ prop_div t
+        , testProperty "mod" $ prop_mod t ]
     , testGroup "Bits"
         [ testProperty "complement" $ prop_complement t
         , testProperty "xor" $ prop_xor t
@@ -113,6 +127,12 @@ isoTestGroup name t =
         , testProperty "unwrappedMul" $ prop_unwrappedMul t
         , testProperty "leadingZeroes" $ prop_leadingZeroes t
         , testProperty "trailingZeroes" $ prop_trailingZeroes t
+        , testProperty "allZeroes" $ prop_allZeroes t
+        , testProperty "allOnes" $ prop_allOnes t
+        , testProperty "msb" $ prop_msb t
+        , testProperty "lsb" $ prop_lsb t
+        , testProperty "testMsb" $ prop_testMsb t
+        , testProperty "testLsb" $ prop_testLsb t
         ]
     ]
 
@@ -149,6 +169,27 @@ prop_trailingZeroesArb _ x
   | otherwise = shiftL x (bs - tz) == 0 && testBit x tz
   where tz = trailingZeroes x
         bs = bitSize x
+
+prop_allZeroesArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
+prop_allZeroesArb a =
+  all (not . testBit (allZeroes ∷ α)) [0 .. bitSize a - 1]
+
+prop_allOnesArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
+prop_allOnesArb a = all (testBit (allOnes ∷ α)) [0 .. bitSize a - 1]
+
+prop_msbArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
+prop_msbArb a = testBit (msb ∷ α) (bitSize a - 1) &&
+                all (not . testBit (msb ∷ α)) [0 .. bitSize a - 2]
+
+prop_lsbArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
+prop_lsbArb a = testBit (lsb ∷ α) 0 &&
+                all (not . testBit (lsb ∷ α)) [1 .. bitSize a - 1]
+
+prop_testMsbArb ∷ ∀ α . BinaryWord α ⇒ α → α → Bool
+prop_testMsbArb _ x = testMsb x == testBit x (bitSize x - 1)
+
+prop_testLsbArb ∷ ∀ α . BinaryWord α ⇒ α → α → Bool
+prop_testLsbArb _ x = testLsb x == testBit x 0
 
 toType ∷ Iso α τ ⇒ τ → α → τ 
 toType _ = fromArbitrary
@@ -200,6 +241,15 @@ prop_unwrappedMul t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
   where (h1, l1) = unwrappedMul x y
         (h2, l2) = unwrappedMul (toType t x) (toType t y)
 
+prop_leadingZeroes = propUnary' leadingZeroes leadingZeroes
+prop_trailingZeroes = propUnary' trailingZeroes trailingZeroes
+prop_allZeroes t = allZeroes == fromType t allZeroes
+prop_allOnes t = allOnes == fromType t allOnes
+prop_msb t = msb == fromType t msb
+prop_lsb t = lsb == fromType t lsb
+prop_testMsb = propUnary' testMsb testMsb
+prop_testLsb = propUnary' testLsb testLsb
+
 prop_negate = propUnary negate negate
 prop_abs = propUnary abs abs
 prop_signum = propUnary signum signum
@@ -214,9 +264,21 @@ prop_toInteger = propUnary' toInteger toInteger
 prop_quotRem t n d = (d /= 0) ==> (qr == (fromType t q1, fromType t r1))
   where qr = quotRem n d
         (q1, r1) = quotRem (fromArbitrary n) (fromArbitrary d)
+prop_quot t n d = (d /= 0) ==> (q == fromType t q1)
+  where q = quot n d
+        q1 = quot (fromArbitrary n) (fromArbitrary d)
+prop_rem t n d = (d /= 0) ==> (r == fromType t r1)
+  where r = rem n d
+        r1 = rem (fromArbitrary n) (fromArbitrary d)
 prop_divMod t n d = (d /= 0) ==> (qr == (fromType t q1, fromType t r1))
   where qr = divMod n d
         (q1, r1) = divMod (fromArbitrary n) (fromArbitrary d)
+prop_div t n d = (d /= 0) ==> (q == fromType t q1)
+  where q = div n d
+        q1 = div (fromArbitrary n) (fromArbitrary d)
+prop_mod t n d = (d /= 0) ==> (r == fromType t r1)
+  where r = mod n d
+        r1 = mod (fromArbitrary n) (fromArbitrary d)
 
 prop_complement = propUnary complement complement
 prop_xor = propBinary xor xor
@@ -237,7 +299,4 @@ prop_complementBit = propBits complementBit complementBit
 prop_testBit t w =
   all (\b → testBit w b == withUnary' t (`testBit` b) w) [0 .. bitSize t - 1]
 prop_popCount = propUnary' popCount popCount
-
-prop_leadingZeroes = propUnary' leadingZeroes leadingZeroes
-prop_trailingZeroes = propUnary' trailingZeroes trailingZeroes
 

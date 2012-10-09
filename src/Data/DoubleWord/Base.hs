@@ -42,6 +42,18 @@ class Bits w ⇒ BinaryWord w where
   leadingZeroes ∷ w → Int
   -- | Number or trailing (from LSB) zero bits
   trailingZeroes ∷ w → Int
+  -- | The word with all bits set to 0
+  allZeroes ∷ w
+  -- | The word with all bits set to 1
+  allOnes ∷ w
+  -- | The word with MSB set to 1 and all the other bits set to 0
+  msb ∷ w
+  -- | The word with LSB set to 1 and all the other bits set to 0
+  lsb ∷ w
+  -- | Test if the MSB is 1
+  testMsb ∷ w → Bool
+  -- | Test if the LSB is 1
+  testLsb ∷ w → Bool
 
 instance BinaryWord Word8 where
   type UnsignedWord Word8 = Word8
@@ -74,6 +86,18 @@ instance BinaryWord Word8 where
                      | w' .&. 4 /= 0 = off + 2
                      | w' .&. 8 /= 0 = off + 3
                      | otherwise     = off + 4
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFF
+  {-# INLINE allOnes #-}
+  msb = 0x80
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 7
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 instance BinaryWord Word16 where
   type UnsignedWord Word16 = Word16
@@ -112,6 +136,18 @@ instance BinaryWord Word16 where
                  | w' .&. 4 /= 0    = off + 2
                  | w' .&. 8 /= 0    = off + 3
                  | otherwise        = off + 4
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFFFF
+  {-# INLINE allOnes #-}
+  msb = 0x8000
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 15
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 instance BinaryWord Word32 where
   type UnsignedWord Word32 = Word32
@@ -168,6 +204,18 @@ instance BinaryWord Word32 where
                   | w' .&. 4 /= 0      = off + 2
                   | w' .&. 8 /= 0      = off + 3
                   | otherwise          = off + 4
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFFFFFFFF
+  {-# INLINE allOnes #-}
+  msb = 0x80000000
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 31
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 instance BinaryWord Word64 where
   type UnsignedWord Word64 = Word64
@@ -244,6 +292,18 @@ instance BinaryWord Word64 where
                    | otherwise      = loZeroes
     where loZeroes = trailingZeroes (loWord w)
 #endif
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFFFFFFFFFFFFFFFF
+  {-# INLINE allOnes #-}
+  msb = 0x8000000000000000
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 63
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 instance BinaryWord Int8 where
   type UnsignedWord Int8 = Word8
@@ -266,6 +326,18 @@ instance BinaryWord Int8 where
   {-# INLINE leadingZeroes #-}
   trailingZeroes = trailingZeroes . unsignedWord
   {-# INLINE trailingZeroes #-}
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFF
+  {-# INLINE allOnes #-}
+  msb = 0x80
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 7
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 instance BinaryWord Int16 where
   type UnsignedWord Int16 = Word16
@@ -288,6 +360,18 @@ instance BinaryWord Int16 where
   {-# INLINE leadingZeroes #-}
   trailingZeroes = trailingZeroes . unsignedWord
   {-# INLINE trailingZeroes #-}
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFFFF
+  {-# INLINE allOnes #-}
+  msb = 0x8000
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 15
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 instance BinaryWord Int32 where
   type UnsignedWord Int32 = Word32
@@ -323,6 +407,18 @@ instance BinaryWord Int32 where
   {-# INLINE leadingZeroes #-}
   trailingZeroes = trailingZeroes . unsignedWord
   {-# INLINE trailingZeroes #-}
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFFFFFFFF
+  {-# INLINE allOnes #-}
+  msb = 0x80000000
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 31
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 instance BinaryWord Int64 where
   type UnsignedWord Int64 = Word64
@@ -345,6 +441,18 @@ instance BinaryWord Int64 where
   {-# INLINE leadingZeroes #-}
   trailingZeroes = trailingZeroes . unsignedWord
   {-# INLINE trailingZeroes #-}
+  allZeroes = 0
+  {-# INLINE allZeroes #-}
+  allOnes = 0xFFFFFFFFFFFFFFFF
+  {-# INLINE allOnes #-}
+  msb = 0x8000000000000000
+  {-# INLINE msb #-}
+  lsb = 1
+  {-# INLINE lsb #-}
+  testMsb x = testBit x 63
+  {-# INLINE testMsb #-}
+  testLsb x = testBit x 0
+  {-# INLINE testLsb #-}
 
 -- | Defines a particular way to split a binary word in halves.
 class BinaryWord w ⇒ DoubleWord w where
@@ -358,6 +466,10 @@ class BinaryWord w ⇒ DoubleWord w where
   hiWord      ∷ w → HiWord w
   -- | Construct a word from the low and high halves
   fromHiAndLo ∷ HiWord w → LoWord w → w
+  -- | Extend the low half
+  extendLo ∷ LoWord w → w
+  -- | Sign-extend the low half
+  signExtendLo ∷ SignedWord (LoWord w) → w
 
 instance DoubleWord Word16 where
   type LoWord Word16 = Word8
@@ -368,6 +480,10 @@ instance DoubleWord Word16 where
   {-# INLINE hiWord #-}
   fromHiAndLo hi lo = shiftL (fromIntegral hi) 8 .|. fromIntegral lo
   {-# INLINE fromHiAndLo #-}
+  extendLo = fromIntegral
+  {-# INLINE extendLo #-}
+  signExtendLo = fromIntegral
+  {-# INLINE signExtendLo #-}
 
 instance DoubleWord Word32 where
   type LoWord Word32 = Word16
@@ -378,6 +494,10 @@ instance DoubleWord Word32 where
   {-# INLINE hiWord #-}
   fromHiAndLo hi lo = shiftL (fromIntegral hi) 16 .|. fromIntegral lo
   {-# INLINE fromHiAndLo #-}
+  extendLo = fromIntegral
+  {-# INLINE extendLo #-}
+  signExtendLo = fromIntegral
+  {-# INLINE signExtendLo #-}
 
 instance DoubleWord Word64 where
   type LoWord Word64 = Word32
@@ -388,6 +508,10 @@ instance DoubleWord Word64 where
   {-# INLINE hiWord #-}
   fromHiAndLo hi lo = shiftL (fromIntegral hi) 32 .|. fromIntegral lo
   {-# INLINE fromHiAndLo #-}
+  extendLo = fromIntegral
+  {-# INLINE extendLo #-}
+  signExtendLo = fromIntegral
+  {-# INLINE signExtendLo #-}
 
 instance DoubleWord Int16 where
   type LoWord Int16 = Word8
@@ -398,6 +522,10 @@ instance DoubleWord Int16 where
   {-# INLINE hiWord #-}
   fromHiAndLo hi lo = shiftL (fromIntegral hi) 8 .|. fromIntegral lo
   {-# INLINE fromHiAndLo #-}
+  extendLo = fromIntegral
+  {-# INLINE extendLo #-}
+  signExtendLo = fromIntegral
+  {-# INLINE signExtendLo #-}
 
 instance DoubleWord Int32 where
   type LoWord Int32 = Word16
@@ -408,6 +536,10 @@ instance DoubleWord Int32 where
   {-# INLINE hiWord #-}
   fromHiAndLo hi lo = shiftL (fromIntegral hi) 16 .|. fromIntegral lo
   {-# INLINE fromHiAndLo #-}
+  extendLo = fromIntegral
+  {-# INLINE extendLo #-}
+  signExtendLo = fromIntegral
+  {-# INLINE signExtendLo #-}
 
 instance DoubleWord Int64 where
   type LoWord Int64 = Word32
@@ -418,4 +550,8 @@ instance DoubleWord Int64 where
   {-# INLINE hiWord #-}
   fromHiAndLo hi lo = shiftL (fromIntegral hi) 32 .|. fromIntegral lo
   {-# INLINE fromHiAndLo #-}
+  extendLo = fromIntegral
+  {-# INLINE extendLo #-}
+  signExtendLo = fromIntegral
+  {-# INLINE signExtendLo #-}
 
