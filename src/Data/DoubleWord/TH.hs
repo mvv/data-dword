@@ -384,7 +384,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         {- toRational x = toInteger x % 1 -}
         [ funX 'toRational $ appV '(%) [appVN 'toInteger [x], litI 1]
         , inline 'toRational ]
-    , inst ''Integral [tp]
+    , inst ''Integral [tp] $
         {-
           toInteger (W hi lo) =
             toInteger hi * (toInteger (maxBound ∷ L) + 1) + toInteger lo
@@ -810,8 +810,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                             , appVN 'signedWord [r] ])))
           else
             fun 'divMod $ VarE 'quotRem
-        , inline 'divMod
-        ]
+        ] ++
+        if signed then [] else [inline 'divMod]
     , inst ''Show [tp]
         [ fun 'show $ appVN '(.) ['show, 'toInteger]
         , inline 'show ]
@@ -832,7 +832,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         , funTupZ 'inRange $
             appV '(&&) [appVN '(>=) [z, x], appVN '(<=) [z, y]]
         , inline 'inRange ]
-    , inst ''Bits [tp]
+    , inst ''Bits [tp] $
         {- bitSize _ = bitSize (undefined ∷ H) + bitSize (undefined ∷ L) -}
         [ fun_ 'bitSize $
             appV '(+)
@@ -1046,7 +1046,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         , funHiLo 'popCount
             (appV '(+) [appVN 'popCount [hi], appVN 'popCount [lo]])
         , inline 'popCount
-        ]
+        ] ++
+        if signed then [inline 'rotateL] else []
     , inst ''BinaryWord [tp]
         [ TySynInstD ''UnsignedWord [tpT] $
             ConT $ if signed then otp else tp
