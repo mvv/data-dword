@@ -59,7 +59,7 @@ main = defaultMainWithOpts
          , isoTestGroup "|Int16|Word16|Word32|" (0 ∷ II64) ]
          mempty {
            ropt_test_options =
-             Just (mempty { topt_maximum_generated_tests = Just 1000 })
+             Just (mempty { topt_maximum_generated_tests = Just 10000 })
          }
 
 arbTestGroup name t =
