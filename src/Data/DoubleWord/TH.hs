@@ -33,14 +33,16 @@ mkDoubleWord ∷ String -- ^ Unsigned variant type name
              → Name   -- ^ Signed variant higher half type
              → Strict -- ^ Lower half strictness
              → Name   -- ^ Lower half type
+             → [Name] -- ^ List of instances for automatic derivation
              → Q [Dec]
-mkDoubleWord un uc uhs uhn sn sc shs shn ls ln =
-    (++) <$> mkDoubleWord' False un' uc' sn' sc' uhs (ConT uhn) ls (ConT ln)
-         <*> mkDoubleWord' True  sn' sc' un' uc' shs (ConT shn) ls (ConT ln)
+mkDoubleWord un uc uhs uhn sn sc shs shn ls ln ad =
+    (++) <$> mkDoubleWord' False un' uc' sn' sc' uhs (ConT uhn) ls lt ad
+         <*> mkDoubleWord' True  sn' sc' un' uc' shs (ConT shn) ls lt ad
   where un' = mkName un
         uc' = mkName uc
         sn' = mkName sn
         sc' = mkName sc
+        lt  = ConT ln
 
 -- | @'mkUnpackedDoubleWord' u uh s sh l@ is an alias for
 --   @'mkDoubleWord' u u 'Unpacked' uh s s 'Unpacked' sh 'Unpacked' l@
@@ -49,18 +51,20 @@ mkUnpackedDoubleWord ∷ String -- ^ Unsigned variant type name
                      → String -- ^ Signed variant type name
                      → Name   -- ^ Signed variant higher half type
                      → Name   -- ^ Lower half type
+                     → [Name] -- ^ List of instances for automatic derivation
                      → Q [Dec]
-mkUnpackedDoubleWord un uhn sn shn ln =
-  mkDoubleWord un un Unpacked uhn sn sn Unpacked shn Unpacked ln
+mkUnpackedDoubleWord un uhn sn shn ln ad =
+  mkDoubleWord un un Unpacked uhn sn sn Unpacked shn Unpacked ln ad
 
 mkDoubleWord' ∷ Bool
               → Name → Name
               → Name → Name
               → Strict → Type
               → Strict → Type
+              → [Name]
               → Q [Dec]
-mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
-    [ DataD [] tp [] [NormalC cn [(hiS, hiT), (loS, loT)]] []
+mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
+    [ DataD [] tp [] [NormalC cn [(hiS, hiT), (loS, loT)]] ad
     , inst ''DoubleWord [tp]
         [ TySynInstD ''LoWord [tpT] loT
         , TySynInstD ''HiWord [tpT] hiT
@@ -98,7 +102,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             CaseE (appVN 'compare [hi, hi'])
               [ Match (ConP 'EQ []) (NormalB (appVN 'compare [lo, lo'])) []
               , Match (VarP x) (NormalB (VarE x)) [] ]
-        , inline 'compare ]
+        , inlinable 'compare ]
     , inst ''Bounded [tp]
         {- minBound = W minBound minBound -}
         [ fun 'minBound $ appWN ['minBound, 'minBound]
@@ -114,7 +118,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
         [ funHiLo 'succ $ CondE (appVN '(==) [lo, 'maxBound])
                                 (appW [appVN 'succ [hi], VarE 'minBound])
                                 (appW [VarE hi, appVN 'succ [lo]])
-        , inline 'succ
+        , inlinable 'succ
         {-
           pred (W hi lo) = if lo == minBound then W (pred hi) maxBound
                                              else W hi (pred lo)
@@ -122,7 +126,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
         , funHiLo 'pred $ CondE (appVN '(==) [lo, 'minBound])
                                 (appW [appVN 'pred [hi], VarE 'maxBound])
                                 (appW [VarE hi, appVN 'pred [lo]])
-        , inline 'pred
+        , inlinable 'pred
         {-
           toEnum x
             | x < 0     = if signed
@@ -145,7 +149,6 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
                              ]
                    else appV 'error [litS "toEnum: nagative value"])
                   (appW [VarE 'allZeroes, appVN 'toEnum [x]])
-        , inline 'toEnum
         {-
           fromEnum (W 0 lo)    = fromEnum lo
           fromEnum (W (-1) lo) = if signed then negate $ fromEnum $ negate lo
@@ -170,7 +173,6 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
                           (NormalB $
                              appV 'error [litS "fromEnum: out of bounds"])
                           [] ]
-        , inline 'fromEnum
         {- enumFrom x = enumFromTo x maxBound -}
         , funX 'enumFrom $ appVN 'enumFromTo [x, 'maxBound]
         , inline 'enumFrom
@@ -184,7 +186,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
               , VarE y
               , CondE (appVN '(>=) [x, y]) (VarE 'maxBound) (VarE 'minBound)
               ]
-        , inline 'enumFromThen
+        , inlinable 'enumFromThen
         {-
           enumFromTo x y = case y `compare` x of
               LT → x : down y x
@@ -234,7 +236,6 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
                     [ValD (VarP next)
                           (NormalB $ appVN '(+) [c, 'lsb]) []]
               ]
-        , inlinable 'enumFromTo
         {-
           enumFromThenTo x y z = case y `compare` x of 
               LT → if z > x then [] else down (x - y) z x
@@ -282,7 +283,6 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
                                  (ConE '[]) (appVN up [step, to, next])
                          ])
                     [ValD (VarP next) (NormalB $ appVN '(+) [c, step]) []]]
-        , inlinable 'enumFromThenTo
         ]
     , inst ''Num [tp]
         {-
@@ -294,7 +294,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
                   (appW [appVN 'negate [hi], zeroE])
                   (appW [ appV 'negate [appVN '(+) ['lsb, hi]]
                         , appVN 'negate [lo] ])
-        , inline 'negate
+        , inlinable 'negate
         {- 
           abs x = if SIGNED
                   then if x < 0 then negate x else x 
@@ -305,7 +305,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             then CondE (appVN '(<) [x, 'allZeroes])
                        (appVN 'negate [x]) (VarE x)
             else VarE x
-        , inline 'abs
+        , if signed then inlinable 'abs else inline 'abs
         {-
           signum (W hi lo) = if SIGNED
                              then case hi `compare` 0 of
@@ -328,7 +328,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             else CondE (appV '(&&) [ appVN '(==) [hi, 'allZeroes]
                                    , appVN '(==) [lo, 'allZeroes] ])
                        zeroE oneE
-        , inline 'signum
+        , inlinable 'signum
         {-
           (W hi lo) + (W hi' lo') = W y x
             where x = lo + lo'
@@ -379,7 +379,6 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
                   , appV '(+)
                       [appV 'toInteger [SigE (VarE 'maxBound) loT], litI 1]
                   ])]
-        , inlinable 'fromInteger
         ]
     , inst ''Real [tp]
         {- toRational x = toInteger x % 1 -}
@@ -988,7 +987,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             [val y $
                appV '(-) [ VarE x
                          , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
-        , inline 'bit
+        , inlinable 'bit
         {-
           setBit (W hi lo) x =
               if y >= 0 then W (setBit hi y) lo else W hi (setBit lo x)
@@ -1001,7 +1000,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             [val y $
                appV '(-) [ VarE x
                          , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
-        , inline 'setBit
+        , inlinable 'setBit
         {-
           clearBit (W hi lo) x =
               if y >= 0 then W (clearBit hi y) lo
@@ -1015,7 +1014,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             [val y $
                appV '(-) [ VarE x
                          , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
-        , inline 'clearBit
+        , inlinable 'clearBit
         {-
           complementBit (W hi lo) x =
               if y >= 0 then W (complementBit hi y) lo
@@ -1029,7 +1028,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             [val y $
                appV '(-) [ VarE x
                          , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
-        , inline 'complementBit
+        , inlinable 'complementBit
         {-
           testBit (W hi lo) x =
               if y >= 0 then testBit hi y else testBit lo x
@@ -1042,7 +1041,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
             [val y $
                appV '(-) [ VarE x
                          , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
-        , inline 'testBit
+        , inlinable 'testBit
         {- popCount (W hi lo) = popCount hi + popCount lo -}
         , funHiLo 'popCount
             (appV '(+) [appVN 'popCount [hi], appVN 'popCount [lo]])
@@ -1228,7 +1227,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
               [ val x $ appVN 'leadingZeroes [hi]
               , val y $ appV 'bitSize [SigE (VarE 'undefined) hiT]
               ]
-        , inline 'leadingZeroes
+        , if signed then inlinable 'leadingZeroes
+                    else inline 'leadingZeroes
         {-
           UNSIGNED:
             trailingZeroes (W hi lo) =
@@ -1249,7 +1249,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
               [ val x $ appVN 'trailingZeroes [lo]
               , val y $ appV 'bitSize [SigE (VarE 'undefined) loT]
               ]
-        , inline 'trailingZeroes
+        , if signed then inlinable 'trailingZeroes
+                    else inline 'trailingZeroes
         {- allZeroes = W allZeroes allZeroes -}
         , fun 'allZeroes $ appWN ['allZeroes, 'allZeroes]
         , inline 'allZeroes
@@ -1305,16 +1306,16 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT = (<$> mkRules) $ (++) $
     div1 = mkName "div1"
     div2 = mkName "div2"
     addT = mkName "addT"
-    by   = mkName "by"
-    go   = mkName "go"
+    by   = mkName "by_"
+    go   = mkName "go_"
     c    = mkName "c"
-    next = mkName "next"
-    step = mkName "step"
-    to   = mkName "to"
-    down = mkName "down"
-    up   = mkName "up"
-    hi   = mkName "hi"
-    lo   = mkName "lo"
+    next = mkName "next_"
+    step = mkName "step_"
+    to   = mkName "to_"
+    down = mkName "down_"
+    up   = mkName "up_"
+    hi   = mkName "hi_"
+    lo   = mkName "lo_"
     hi'  = mkName "hi'"
     lo'  = mkName "lo'"
     tpT  = ConT tp
