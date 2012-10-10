@@ -21,8 +21,8 @@ import Data.DoubleWord.Base
 --   the specified low and high halves. The high halves /must/ have
 --   less or equal bit-length than the lover half. For each data type
 --   the following instances are declared: 'DoubleWord', 'Eq', 'Ord',
---   'Bounded', 'Enum', 'Num', 'Real', 'Integral', 'Show', 'Hashable',
---   'Ix', 'Bits', 'BinaryWord'.
+--   'Bounded', 'Enum', 'Num', 'Real', 'Integral', 'Show', 'Read',
+--   'Hashable', 'Ix', 'Bits', 'BinaryWord'.
 mkDoubleWord ∷ String -- ^ Unsigned variant type name
              → String -- ^ Unsigned variant constructor name
              → Strict -- ^ Unsigned variant higher half strictness
@@ -815,6 +815,16 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     , inst ''Show [tp]
         [ fun 'show $ appVN '(.) ['show, 'toInteger]
         , inline 'show ]
+    , inst ''Read [tp]
+        {-
+          readsPrec x y = fmap (\(q, r) → (fromInteger q, r))
+                        $ readsPrec x y
+        -}
+        [ funXY 'readsPrec $
+            appV 'fmap [ LamE [TupP [VarP q, VarP r]]
+                              (TupE [appVN 'fromInteger [q], VarE r])
+                       , appVN 'readsPrec [x, y] ]
+        ]
     , inst ''Hashable [tp]
         {- hash (W hi lo) = hash hi `combine` hash lo -}
         [ funHiLo 'hash $ appV 'combine [appVN 'hash [hi], appVN 'hash [lo]]
