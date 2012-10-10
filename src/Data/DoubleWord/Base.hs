@@ -233,7 +233,7 @@ instance BinaryWord Word64 where
 #else
   unwrappedAdd x y = hi `seq` lo `seq` (hi, lo)
     where lo = x + y
-          hi = if lo > x then 1 else 0
+          hi = if lo < x then 1 else 0
   {-# INLINABLE unwrappedAdd #-}
 #endif
 #if __GLASGOW_HASKELL__ >= 705 && WORD_SIZE_IN_BITS == 64
@@ -244,16 +244,19 @@ instance BinaryWord Word64 where
   {-# INLINE unwrappedMul #-}
 #else
   unwrappedMul x y = hi `seq` lo `seq` (hi, lo)
-    where xHi = hiWord x
-          xLo = loWord x
-          yHi = hiWord y
-          yLo = loWord y
+    where xHi = shiftR x 32
+          xLo = x .&. 0xFFFFFFFF
+          yHi = shiftR y 32
+          yLo = y .&. 0xFFFFFFFF
           hi0 = xHi * yHi
           lo0 = xLo * yLo
           p1  = xHi * yLo
           p2  = xLo * yHi
-          lo  = lo0 + shiftL p1 32 + shiftL p2 32
-          hi  = hi0 + shiftR p1 32 + shiftR p2 32
+          hi  = hi0 + fromIntegral uHi1 + fromIntegral uHi2 +
+                shiftR p1 32 + shiftR p2 32
+          lo  = fromHiAndLo lo' (loWord lo0)
+          (uHi1, uLo) = unwrappedAdd (loWord p1) (loWord p2)
+          (uHi2, lo') = unwrappedAdd (hiWord lo0) uLo
 #endif
 #if WORD_SIZE_IN_BITS == 64
   leadingZeroes w | w .&. 0xFFFFFFFF00000000 == 0 = go32 32 w
