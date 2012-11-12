@@ -1381,7 +1381,13 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                          (VarE 'fromIntegral)
                          (SigE (VarE 'id) (AppT (AppT ArrowT tpT) tpT))
                          AllPhases
-      mkRules' [idRule] loT
+          signRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ show otp) []
+                           (VarE 'fromIntegral)
+                           (SigE (VarE (if signed then 'unsignedWord
+                                                  else 'signedWord))
+                                 (AppT (AppT ArrowT tpT) (ConT otp)))
+                           AllPhases
+      mkRules' [idRule, signRule] loT
                (VarE 'loWord)
                (VarE 'extendLo)
                (VarE 'signExtendLo)
