@@ -1,4 +1,5 @@
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | Template Haskell utilities for generating double words declarations
@@ -12,7 +13,11 @@ import Data.Ratio ((%))
 import Data.Bits (Bits(..))
 import Data.Word (Word8, Word16, Word32, Word64)
 import Data.Int (Int8, Int16, Int32, Int64)
+#if MIN_VERSION_hashable(1,2,0)
+import Data.Hashable (Hashable(..), hashWithSalt)
+#else
 import Data.Hashable (Hashable(..), combine)
+#endif
 import Control.Applicative ((<$>), (<*>))
 import Language.Haskell.TH hiding (match)
 import Data.DoubleWord.Base
@@ -826,9 +831,18 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                        , appVN 'readsPrec [x, y] ]
         ]
     , inst ''Hashable [tp]
+#if MIN_VERSION_hashable(1,2,0)
+        {-
+          hashWithSalt x (W hi lo) =
+            x `hashWithSalt` hi `hashWithSalt` lo
+        -}
+        [ funXHiLo 'hashWithSalt $
+            appV 'hashWithSalt [appVN 'hashWithSalt [x, hi], VarE lo]
+#else
         {- hash (W hi lo) = hash hi `combine` hash lo -}
         [ funHiLo 'hash $ appV 'combine [appVN 'hash [hi], appVN 'hash [lo]]
         , inline 'hash
+#endif
         , inline 'hashWithSalt ]
     , inst ''Ix [tp]
         {- range (x, y) = enumFromTo x y -}
@@ -1358,6 +1372,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
       FunD n [Clause [ AsP x (ConP cn [VarP hi, VarP lo])
                      , AsP y (ConP cn [VarP hi', VarP lo']) ]
                      (NormalB e) ds]
+    funXHiLo n e  = FunD n [Clause [VarP x, ConP cn [VarP hi, VarP lo]]
+                                   (NormalB e) []]
     match' p e ds = Match p (NormalB e) ds
     match p e     = match' p e []
     inline n = PragmaD $ InlineP n Inline FunLike AllPhases
