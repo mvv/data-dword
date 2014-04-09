@@ -17,6 +17,9 @@ Copyright: 2011, 2012 Mikhail Vorozhtsov <mikhail.vorozhtsov@gmail.com>
 License: BSD3
 License-File: LICENSE
 
+Extra-Source-Files:
+  README.md
+
 Cabal-Version: >= 1.10.0
 Build-Type: Simple
 
