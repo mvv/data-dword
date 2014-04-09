@@ -331,9 +331,9 @@ instance BinaryWord Int8 where
   {-# INLINE trailingZeroes #-}
   allZeroes = 0
   {-# INLINE allZeroes #-}
-  allOnes = 0xFF
+  allOnes = -1
   {-# INLINE allOnes #-}
-  msb = 0x80
+  msb = minBound
   {-# INLINE msb #-}
   lsb = 1
   {-# INLINE lsb #-}
@@ -365,9 +365,9 @@ instance BinaryWord Int16 where
   {-# INLINE trailingZeroes #-}
   allZeroes = 0
   {-# INLINE allZeroes #-}
-  allOnes = 0xFFFF
+  allOnes = -1
   {-# INLINE allOnes #-}
-  msb = 0x8000
+  msb = minBound
   {-# INLINE msb #-}
   lsb = 1
   {-# INLINE lsb #-}
@@ -412,9 +412,9 @@ instance BinaryWord Int32 where
   {-# INLINE trailingZeroes #-}
   allZeroes = 0
   {-# INLINE allZeroes #-}
-  allOnes = 0xFFFFFFFF
+  allOnes = -1
   {-# INLINE allOnes #-}
-  msb = 0x80000000
+  msb = minBound
   {-# INLINE msb #-}
   lsb = 1
   {-# INLINE lsb #-}
@@ -446,9 +446,9 @@ instance BinaryWord Int64 where
   {-# INLINE trailingZeroes #-}
   allZeroes = 0
   {-# INLINE allZeroes #-}
-  allOnes = 0xFFFFFFFFFFFFFFFF
+  allOnes = -1
   {-# INLINE allOnes #-}
-  msb = 0x8000000000000000
+  msb = minBound
   {-# INLINE msb #-}
   lsb = 1
   {-# INLINE lsb #-}

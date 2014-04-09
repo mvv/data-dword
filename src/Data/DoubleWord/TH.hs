@@ -10,7 +10,11 @@ module Data.DoubleWord.TH
 
 import GHC.Arr (Ix(..))
 import Data.Ratio ((%))
+#if MIN_VERSION_base(4,7,0)
+import Data.Bits (Bits(..), FiniteBits(..))
+#else
 import Data.Bits (Bits(..))
+#endif
 import Data.Word (Word8, Word16, Word32, Word64)
 import Data.Int (Int8, Int16, Int32, Int64)
 #if MIN_VERSION_hashable(1,2,0)
@@ -71,8 +75,8 @@ mkDoubleWord' ∷ Bool
 mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     [ DataD [] tp [] [NormalC cn [(hiS, hiT), (loS, loT)]] ad
     , inst ''DoubleWord [tp]
-        [ TySynInstD ''LoWord [tpT] loT
-        , TySynInstD ''HiWord [tpT] hiT
+        [ tySynInst ''LoWord [tpT] loT
+        , tySynInst ''HiWord [tpT] hiT
         , funLo 'loWord (VarE lo)
         , inline 'loWord
         , funHi 'hiWord (VarE hi)
@@ -863,6 +867,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
               [ appV 'bitSize [SigE (VarE 'undefined) hiT]
               , appV 'bitSize [SigE (VarE 'undefined) loT] ]
         , inline 'bitSize
+#if MIN_VERSION_base(4,7,0)
+        {- bitSizeMaybe = Just . bitSize -}
+        , fun 'bitSizeMaybe $ appV '(.) [ConE 'Just, VarE 'bitSize]
+        , inline 'bitSizeMaybe
+#endif
         {- isSigned _ = SIGNED -}
         , fun_ 'isSigned $ ConE $ if signed then 'True else 'False
         , inline 'isSigned
@@ -1072,10 +1081,17 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         , inline 'popCount
         ] ++
         if signed then [inline 'rotateL] else []
+#if MIN_VERSION_base(4,7,0)
+    , inst ''FiniteBits [tp]
+        {- finiteBitSize = bitSize -}
+        [ fun 'finiteBitSize $ VarE 'bitSize
+        , inline 'finiteBitSize
+        ]
+#endif
     , inst ''BinaryWord [tp]
-        [ TySynInstD ''UnsignedWord [tpT] $
+        [ tySynInst ''UnsignedWord [tpT] $
             ConT $ if signed then otp else tp
-        , TySynInstD ''SignedWord [tpT] $
+        , tySynInst ''SignedWord [tpT] $
             ConT $ if signed then tp else otp
         {-
           UNSIGNED:
@@ -1344,6 +1360,12 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     hi'  = mkName "hi'"
     lo'  = mkName "lo'"
     tpT  = ConT tp
+    tySynInst n ps t =
+#if MIN_VERSION_template_haskell(2,9,0)
+      TySynInstD n (TySynEqn ps t)
+#else
+      TySynInstD n ps t
+#endif
     inst cls params = InstanceD [] (foldl AppT (ConT cls) (ConT <$> params))
     fun n e       = FunD n [Clause [] (NormalB e) []]
     fun_ n e      = FunD n [Clause [WildP] (NormalB e) []]
@@ -1421,7 +1443,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
       signedRules ← do
         insts ← reifyInstances ''SignedWord [t]
         case insts of
+#if MIN_VERSION_template_haskell(2,9,0)
+          [TySynInstD _ (TySynEqn _ signT)] → return $
+#else
           [TySynInstD _ _ signT] → return $
+#endif
             [ RuleP ("fromIntegral/" ++ show tp ++ "->" ++ showT signT)
                     []
                     (VarE 'fromIntegral)
@@ -1473,7 +1499,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         _ → do
           insts ← reifyInstances ''LoWord [t]
           case insts of
+#if MIN_VERSION_template_haskell(2,9,0)
+            [TySynInstD _ (TySynEqn _ t')] →
+#else
             [TySynInstD _ _ t'] →
+#endif
               mkRules' rules' t'
                        (appV '(.) [VarE 'loWord, narrowE])
                        (appV '(.) [VarE 'extendLo, extE])
