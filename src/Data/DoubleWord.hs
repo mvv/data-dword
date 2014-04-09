@@ -8,7 +8,8 @@
 --   signed and unsigned binary word data types of sizes 96, 128,
 --   160, 192, 224, and 256 bits.
 module Data.DoubleWord
-  ( module Data.DoubleWord.Base
+  ( module Data.BinaryWord
+  , module Data.DoubleWord.Base
   , Word96(..)
   , Word128(..)
   , Word160(..)
@@ -27,6 +28,7 @@ import Data.Data
 import GHC.Generics
 import Data.Word
 import Data.Int
+import Data.BinaryWord
 import Data.DoubleWord.Base
 import Data.DoubleWord.TH
 

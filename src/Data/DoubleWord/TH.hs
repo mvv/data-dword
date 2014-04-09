@@ -10,10 +10,10 @@ module Data.DoubleWord.TH
 
 import GHC.Arr (Ix(..))
 import Data.Ratio ((%))
-#if MIN_VERSION_base(4,7,0)
-import Data.Bits (Bits(..), FiniteBits(..))
-#else
 import Data.Bits (Bits(..))
+#if MIN_VERSION_base(4,7,0)
+import Data.Bits (FiniteBits(..))
+#else
 #endif
 import Data.Word (Word8, Word16, Word32, Word64)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -24,6 +24,7 @@ import Data.Hashable (Hashable(..), combine)
 #endif
 import Control.Applicative ((<$>), (<*>))
 import Language.Haskell.TH hiding (match)
+import Data.BinaryWord (BinaryWord(..))
 import Data.DoubleWord.Base
 
 -- | Declare signed and unsigned binary word types built from
@@ -1310,6 +1311,18 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         {- testLsb (W _ lo) = testLsb lo -}
         , funLo 'testLsb $ appVN 'testLsb [lo]
         , inline 'testLsb
+        {- setMsb (W hi lo) = W (setMsb hi) lo -}
+        , funHiLo 'setMsb $ appW [appVN 'setMsb [hi], VarE lo]
+        , inline 'setMsb
+        {- setLsb (W hi lo) = W hi (setLsb lo) -}
+        , funHiLo 'setLsb $ appW [VarE hi, appVN 'setLsb [lo]]
+        , inline 'setLsb
+        {- clearMsb (W hi lo) = W (clearMsb hi) lo -}
+        , funHiLo 'clearMsb $ appW [appVN 'clearMsb [hi], VarE lo]
+        , inline 'clearMsb
+        {- clearLsb (W hi lo) = W hi (clearLsb lo) -}
+        , funHiLo 'clearLsb $ appW [VarE hi, appVN 'clearLsb [lo]]
+        , inline 'clearLsb
         ]
     ]
   where
