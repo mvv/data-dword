@@ -6,15 +6,12 @@
 {-# LANGUAGE NoMonomorphismRestriction #-}
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 
-import Test.Framework (RunnerOptions'(..), TestOptions'(..),
-                       defaultMainWithOpts, testGroup)
-import Test.Framework.Providers.QuickCheck2 (testProperty)
-import Test.QuickCheck hiding ((.&.))
+import Test.Tasty (defaultMain, localOption, testGroup)
+import Test.Tasty.QuickCheck hiding ((.&.))
 
 import Data.Bits
 import Data.Word
 import Data.Int
-import Data.Monoid (mempty)
 import Data.DoubleWord (BinaryWord(..))
 import Types
 
@@ -44,7 +41,9 @@ instance Iso Int64 II64 where
                                    .|. fromIntegral lh `shiftL` 32
                                    .|. fromIntegral ll
 
-main = defaultMainWithOpts
+main = defaultMain
+     $ localOption (QuickCheckTests 10000)
+     $ testGroup "Tests"
          [ arbTestGroup "Word8" (0 ∷ Word8)
          , arbTestGroup "Int8" (0 ∷ Int8)
          , arbTestGroup "Word16" (0 ∷ Word16)
@@ -57,10 +56,6 @@ main = defaultMainWithOpts
          , isoTestGroup "|Int32|Word32|" (0 ∷ I64)
          , isoTestGroup "|Word16|Word16|Word32|" (0 ∷ UU64)
          , isoTestGroup "|Int16|Word16|Word32|" (0 ∷ II64) ]
-         mempty {
-           ropt_test_options =
-             Just (mempty { topt_maximum_generated_tests = Just 10000 })
-         }
 
 arbTestGroup name t =
   testGroup name
