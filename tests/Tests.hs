@@ -1,4 +1,5 @@
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -131,6 +132,10 @@ isoTestGroup name t =
         ]
     ]
 
+#if !MIN_VERSION_base(4,7,0)
+finiteBitSize = bitSize
+#endif
+
 prop_unwrappedAddArb ∷ ∀ α
                      . (Integral α, BinaryWord α, Bounded (UnsignedWord α),
                         Integral (UnsignedWord α))
@@ -155,7 +160,7 @@ prop_leadingZeroesArb _ x
   | lz == bs  = x == 0
   | otherwise = shiftR x (bs - lz) == 0 && testBit x (bs - lz - 1)
   where lz = leadingZeroes x
-        bs = bitSize x
+        bs = finiteBitSize x
 
 prop_trailingZeroesArb ∷ ∀ α . (Num α, BinaryWord α) ⇒ α → α → Bool
 prop_trailingZeroesArb _ x
@@ -163,25 +168,25 @@ prop_trailingZeroesArb _ x
   | tz == bs  = x == 0
   | otherwise = shiftL x (bs - tz) == 0 && testBit x tz
   where tz = trailingZeroes x
-        bs = bitSize x
+        bs = finiteBitSize x
 
 prop_allZeroesArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
 prop_allZeroesArb a =
-  all (not . testBit (allZeroes ∷ α)) [0 .. bitSize a - 1]
+  all (not . testBit (allZeroes ∷ α)) [0 .. finiteBitSize a - 1]
 
 prop_allOnesArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
-prop_allOnesArb a = all (testBit (allOnes ∷ α)) [0 .. bitSize a - 1]
+prop_allOnesArb a = all (testBit (allOnes ∷ α)) [0 .. finiteBitSize a - 1]
 
 prop_msbArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
-prop_msbArb a = testBit (msb ∷ α) (bitSize a - 1) &&
-                all (not . testBit (msb ∷ α)) [0 .. bitSize a - 2]
+prop_msbArb a = testBit (msb ∷ α) (finiteBitSize a - 1) &&
+                all (not . testBit (msb ∷ α)) [0 .. finiteBitSize a - 2]
 
 prop_lsbArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
 prop_lsbArb a = testBit (lsb ∷ α) 0 &&
-                all (not . testBit (lsb ∷ α)) [1 .. bitSize a - 1]
+                all (not . testBit (lsb ∷ α)) [1 .. finiteBitSize a - 1]
 
 prop_testMsbArb ∷ ∀ α . BinaryWord α ⇒ α → α → Bool
-prop_testMsbArb _ x = testMsb x == testBit x (bitSize x - 1)
+prop_testMsbArb _ x = testMsb x == testBit x (finiteBitSize x - 1)
 
 prop_testLsbArb ∷ ∀ α . BinaryWord α ⇒ α → α → Bool
 prop_testLsbArb _ x = testLsb x == testBit x 0
@@ -223,14 +228,14 @@ prop_succ t w = (w /= maxBound) ==> (succ w == withUnary t succ w)
 prop_pred t w = (w /= minBound) ==> (pred w == withUnary t pred w)
 
 prop_unwrappedAdd ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
-                     BinaryWord α, BinaryWord τ, Eq α, Eq (UnsignedWord α))
+                     BinaryWord α, BinaryWord τ)
                   ⇒ τ → α → α → Bool
 prop_unwrappedAdd t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
   where (h1, l1) = unwrappedAdd x y
         (h2, l2) = unwrappedAdd (toType t x) (toType t y)
 
 prop_unwrappedMul ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
-                     BinaryWord α, BinaryWord τ, Eq α, Eq (UnsignedWord α))
+                     BinaryWord α, BinaryWord τ)
                   ⇒ τ → α → α → Bool
 prop_unwrappedMul t x y = h1 == toArbitrary h2 && l1 == toArbitrary l2
   where (h1, l1) = unwrappedMul x y
@@ -280,18 +285,18 @@ prop_xor = propBinary xor xor
 prop_and = propBinary (.&.) (.&.)
 prop_or = propBinary (.|.) (.|.)
 propOffsets f g t w =
-  all (\b → f w b == withUnary t (`g` b) w) [0 .. bitSize t]
+  all (\b → f w b == withUnary t (`g` b) w) [0 .. finiteBitSize t]
 prop_shiftL = propOffsets shiftL shiftL
 prop_shiftR = propOffsets shiftR shiftR
 prop_rotateL = propOffsets rotateL rotateL
 prop_rotateR = propOffsets rotateR rotateR
-prop_bit t = all (\b → bit b == fromType t (bit b)) [0 .. bitSize t - 1]
+prop_bit t = all (\b → bit b == fromType t (bit b)) [0 .. finiteBitSize t - 1]
 propBits f g t w =
-  all (\b → f w b == withUnary t (`g` b) w) [0 .. bitSize t - 1]
+  all (\b → f w b == withUnary t (`g` b) w) [0 .. finiteBitSize t - 1]
 prop_setBit = propBits setBit setBit
 prop_clearBit = propBits clearBit clearBit
 prop_complementBit = propBits complementBit complementBit
 prop_testBit t w =
-  all (\b → testBit w b == withUnary' t (`testBit` b) w) [0 .. bitSize t - 1]
+  all (\b → testBit w b == withUnary' t (`testBit` b) w) [0 .. finiteBitSize t - 1]
 prop_popCount = propUnary' popCount popCount
 

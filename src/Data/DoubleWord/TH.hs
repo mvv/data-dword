@@ -13,7 +13,6 @@ import Data.Ratio ((%))
 import Data.Bits (Bits(..))
 #if MIN_VERSION_base(4,7,0)
 import Data.Bits (FiniteBits(..))
-#else
 #endif
 import Data.Word (Word8, Word16, Word32, Word64)
 import Data.Int (Int8, Int16, Int32, Int64)
@@ -23,7 +22,7 @@ import Data.Hashable (Hashable(..), hashWithSalt)
 import Data.Hashable (Hashable(..), combine)
 #endif
 import Control.Applicative ((<$>), (<*>))
-import Language.Haskell.TH hiding (match)
+import Language.Haskell.TH hiding (unpacked, match)
 import Data.BinaryWord (BinaryWord(..))
 import Data.DoubleWord.Base
 
@@ -35,13 +34,25 @@ import Data.DoubleWord.Base
 --   'Hashable', 'Ix', 'Bits', 'BinaryWord'.
 mkDoubleWord ∷ String -- ^ Unsigned variant type name
              → String -- ^ Unsigned variant constructor name
+#if MIN_VERSION_template_haskell(2,11,0)
+             → Bang   -- ^ Unsigned variant higher half strictness
+#else
              → Strict -- ^ Unsigned variant higher half strictness
+#endif
              → Name   -- ^ Unsigned variant higher half type
              → String -- ^ Signed variant type name
              → String -- ^ Signed variant constructor name
+#if MIN_VERSION_template_haskell(2,11,0)
+             → Bang   -- ^ Signed variant higher half strictness
+#else
              → Strict -- ^ Signed variant higher half strictness
+#endif
              → Name   -- ^ Signed variant higher half type
+#if MIN_VERSION_template_haskell(2,11,0)
+             → Bang   -- ^ Lower half strictness
+#else
              → Strict -- ^ Lower half strictness
+#endif
              → Name   -- ^ Lower half type
              → [Name] -- ^ List of instances for automatic derivation
              → Q [Dec]
@@ -64,17 +75,42 @@ mkUnpackedDoubleWord ∷ String -- ^ Unsigned variant type name
                      → [Name] -- ^ List of instances for automatic derivation
                      → Q [Dec]
 mkUnpackedDoubleWord un uhn sn shn ln ad =
-  mkDoubleWord un un Unpacked uhn sn sn Unpacked shn Unpacked ln ad
+    mkDoubleWord un un unpacked uhn sn sn unpacked shn unpacked ln ad
+  where unpacked =
+#if MIN_VERSION_template_haskell(2,11,0)
+                   Bang SourceUnpack SourceStrict
+#else
+                   Unpacked
+#endif
 
 mkDoubleWord' ∷ Bool
               → Name → Name
               → Name → Name
-              → Strict → Type
-              → Strict → Type
+#if MIN_VERSION_template_haskell(2,11,0)
+              → Bang
+#else
+              → Strict
+#endif
+              → Type
+#if MIN_VERSION_template_haskell(2,11,0)
+              → Bang
+#else
+              → Strict
+#endif
+              → Type
               → [Name]
               → Q [Dec]
 mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
-    [ DataD [] tp [] [NormalC cn [(hiS, hiT), (loS, loT)]] ad
+    [ DataD [] tp []
+#if MIN_VERSION_template_haskell(2,11,0)
+            Nothing
+#endif
+            [NormalC cn [(hiS, hiT), (loS, loT)]]
+#if MIN_VERSION_template_haskell(2,11,0)
+            (ConT <$> ad)
+#else
+            ad
+#endif
     , inst ''DoubleWord [tp]
         [ tySynInst ''LoWord [tpT] loT
         , tySynInst ''HiWord [tpT] hiT
@@ -624,10 +660,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                         , val t2 $ appVN 'leadingZeroes [hi']
                         , val z $ appV 'shiftR
                                     [ VarE hi
-                                    , appV '(-)
-                                        [ appV 'bitSize
-                                            [SigE (VarE 'undefined) hiT]
-                                        , VarE t2 ]
+                                    , appV '(-) [hiSizeE, VarE t2]
                                     ]
                         , ValD (ConP cn [VarP hhh, VarP hll])
                             (NormalB $ appVN 'shiftL [x, t2]) [] 
@@ -863,14 +896,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         , inline 'inRange ]
     , inst ''Bits [tp] $
         {- bitSize _ = bitSize (undefined ∷ H) + bitSize (undefined ∷ L) -}
-        [ fun_ 'bitSize $
-            appV '(+)
-              [ appV 'bitSize [SigE (VarE 'undefined) hiT]
-              , appV 'bitSize [SigE (VarE 'undefined) loT] ]
+        [ fun_ 'bitSize $ appV '(+) [hiSizeE, loSizeE]
         , inline 'bitSize
 #if MIN_VERSION_base(4,7,0)
-        {- bitSizeMaybe = Just . bitSize -}
-        , fun 'bitSizeMaybe $ appV '(.) [ConE 'Just, VarE 'bitSize]
+        {- bitSizeMaybe = Just . finiteBitSize -}
+        , fun 'bitSizeMaybe $ appV '(.) [ConE 'Just, VarE 'finiteBitSize]
         , inline 'bitSizeMaybe
 #endif
         {- isSigned _ = SIGNED -}
@@ -909,9 +939,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                    (appW [ appV 'fromIntegral
                              [appV 'shiftL [VarE lo, appVN 'negate [y]]]
                          , zeroE ]))
-            [val y $
-               appV '(-) [ appV 'bitSize [SigE (VarE 'undefined) loT]
-                         , VarE x ]]
+            [val y $ appV '(-) [loSizeE, VarE x]]
         {-
           shiftR (W hi lo) x =
               W (shiftR hi x)
@@ -932,8 +960,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                  [appVN 'fromIntegral [hi], VarE y]
                              , appVN 'shiftR [lo, x] ])
                           (VarE z) ])
-            [ val y $ appV '(-) [ appV 'bitSize [SigE (VarE 'undefined) loT]
-                                , VarE x ]
+            [ val y $ appV '(-) [loSizeE, VarE x]
             , val z $
                 if signed
                 then appV 'fromIntegral
@@ -975,9 +1002,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                     , appV '(.|.)
                         [ appV 'shiftL
                             [ appVN 'fromIntegral [hi]
-                            , appV '(-)
-                                [ appV 'bitSize [SigE (VarE 'undefined) loT]
-                                , VarE z ]
+                            , appV '(-) [loSizeE, VarE z]
                             ]
                         , appVN 'shiftR [lo, z] ]
                     ])
@@ -989,27 +1014,15 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                     , appV '(.|.)
                         [ appV 'shift
                             [ appVN 'fromIntegral [hi]
-                            , appV '(-)
-                                [ appV 'bitSize [SigE (VarE 'undefined) loT]
-                                , VarE z] ]
+                            , appV '(-) [loSizeE, VarE z] ]
                         , appV '(.|.)
                             [appVN 'shiftL [lo, x], appVN 'shiftR [lo, z]] ]
                     ]))
-              [ val y $
-                  appV '(-) [ VarE x
-                            , appV 'bitSize [SigE (VarE 'undefined) loT] ]
-              , val z $
-                  appV '(-)
-                    [ appV 'bitSize [SigE (VarE 'undefined) tpT]
-                    , VarE x ]
+              [ val y $ appV '(-) [VarE x, loSizeE]
+              , val z $ appV '(-) [sizeE, VarE x]
               ]
         {- rotateR x y = rotateL x $ bitSize (undefined ∷ W) - y -}
-        , funXY 'rotateR $
-            appV 'rotateL
-              [ VarE x
-              , appV '(-)
-                  [appV 'bitSize [SigE (VarE 'undefined) tpT], VarE y]
-              ]
+        , funXY 'rotateR $ appV 'rotateL [VarE x, appV '(-) [sizeE, VarE y]]
         , inline 'rotateR
         {-
           bit x = if y >= 0 then W (bit y) 0 else W 0 (bit x)
@@ -1018,9 +1031,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         , funX' 'bit (CondE (appV '(>=) [VarE y, litI 0])
                             (appW [appVN 'bit [y], zeroE])
                             (appW [zeroE, appVN 'bit [x]]))
-            [val y $
-               appV '(-) [ VarE x
-                         , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
+            [val y $ appV '(-) [VarE x, loSizeE]]
         , inlinable 'bit
         {-
           setBit (W hi lo) x =
@@ -1045,9 +1056,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
             (CondE (appV '(>=) [VarE y, litI 0])
                    (appW [appVN 'clearBit [hi, y], VarE lo])
                    (appW [VarE hi, appVN 'clearBit [lo, x]]))
-            [val y $
-               appV '(-) [ VarE x
-                         , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
+            [val y $ appV '(-) [VarE x, loSizeE]]
         , inlinable 'clearBit
         {-
           complementBit (W hi lo) x =
@@ -1059,9 +1068,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
             (CondE (appV '(>=) [VarE y, litI 0])
                    (appW [appVN 'complementBit [hi, y], VarE lo])
                    (appW [VarE hi, appVN 'complementBit [lo, x]]))
-            [val y $
-               appV '(-) [ VarE x
-                         , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
+            [val y $ appV '(-) [VarE x, loSizeE]]
         , inlinable 'complementBit
         {-
           testBit (W hi lo) x =
@@ -1072,9 +1079,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
             (CondE (appV '(>=) [VarE y, litI 0])
                    (appVN 'testBit [hi, y])
                    (appVN 'testBit [lo, x]))
-            [val y $
-               appV '(-) [ VarE x
-                         , appV 'bitSize [SigE (VarE 'undefined) loT] ]]
+            [val y $ appV '(-) [VarE x, loSizeE]]
         , inlinable 'testBit
         {- popCount (W hi lo) = popCount hi + popCount lo -}
         , funHiLo 'popCount
@@ -1084,9 +1089,20 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         if signed then [inline 'rotateL] else []
 #if MIN_VERSION_base(4,7,0)
     , inst ''FiniteBits [tp]
-        {- finiteBitSize = bitSize -}
-        [ fun 'finiteBitSize $ VarE 'bitSize
+        {- 
+           finiteBitSize = finiteBitSize (undefined ∷ H) +
+                           finiteBitSize (undefined ∷ L)
+        -}
+        [ fun_ 'finiteBitSize $ appV '(+) [hiSizeE, loSizeE]
         , inline 'finiteBitSize
+# if MIN_VERSION_base(4,8,0)
+        {- countLeadingZeros = leadingZeroes -}
+        , fun 'countLeadingZeros $ VarE 'leadingZeroes
+        , inline 'countLeadingZeros
+        {- countTrailingZeros = trailingZeroes -}
+        , fun 'countTrailingZeros $ VarE 'trailingZeroes
+        , inline 'countTrailingZeros
+# endif
         ]
 #endif
     , inst ''BinaryWord [tp]
@@ -1245,9 +1261,8 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
               , val x $
                   appV 'fromIntegral
                     [appV '(+) [VarE t6, appVN '(+) [t8, t10]]]
-              , val y $ appV 'bitSize [SigE (VarE 'undefined) hiT]
-              , val z $ appV '(-) [ appV 'bitSize [SigE (VarE 'undefined) loT]
-                                  , VarE y ]
+              , val y $ hiSizeE
+              , val z $ appV '(-) [loSizeE, VarE y]
               ]
         {-
           UNSIGNED:
@@ -1267,7 +1282,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                      (appV '(+) [VarE y, appVN 'leadingZeroes [lo]])
                      (VarE x))
               [ val x $ appVN 'leadingZeroes [hi]
-              , val y $ appV 'bitSize [SigE (VarE 'undefined) hiT]
+              , val y $ hiSizeE
               ]
         , if signed then inlinable 'leadingZeroes
                     else inline 'leadingZeroes
@@ -1289,8 +1304,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                      (appV '(+) [VarE y, appVN 'trailingZeroes [hi]])
                      (VarE x))
               [ val x $ appVN 'trailingZeroes [lo]
-              , val y $ appV 'bitSize [SigE (VarE 'undefined) loT]
-              ]
+              , val y $ loSizeE ]
         , if signed then inlinable 'trailingZeroes
                     else inline 'trailingZeroes
         {- allZeroes = W allZeroes allZeroes -}
@@ -1379,7 +1393,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
 #else
       TySynInstD n ps t
 #endif
-    inst cls params = InstanceD [] (foldl AppT (ConT cls) (ConT <$> params))
+    inst cls params = InstanceD
+#if MIN_VERSION_template_haskell(2,11,0)
+                                Nothing
+#endif
+                                [] (foldl AppT (ConT cls) (ConT <$> params))
     fun n e       = FunD n [Clause [] (NormalB e) []]
     fun_ n e      = FunD n [Clause [WildP] (NormalB e) []]
     funX' n e ds  = FunD n [Clause [VarP x] (NormalB e) ds]
@@ -1427,6 +1445,15 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     litS = LitE . StringL
     zeroE = VarE 'allZeroes
     oneE  = VarE 'lsb
+#if MIN_VERSION_base(4,7,0)
+    loSizeE = appV 'finiteBitSize [SigE (VarE 'undefined) loT]
+    hiSizeE = appV 'finiteBitSize [SigE (VarE 'undefined) hiT]
+    sizeE   = appV 'finiteBitSize [SigE (VarE 'undefined) tpT]
+#else
+    loSizeE = appV 'bitSize [SigE (VarE 'undefined) loT]
+    hiSizeE = appV 'bitSize [SigE (VarE 'undefined) hiT]
+    sizeE   = appV 'bitSize [SigE (VarE 'undefined) tpT]
+#endif
     mkRules = do
       let idRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ show tp) []
                          (VarE 'fromIntegral)
