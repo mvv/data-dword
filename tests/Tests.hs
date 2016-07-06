@@ -45,33 +45,10 @@ instance Iso Int64 II64 where
 main = defaultMain
      $ localOption (QuickCheckTests 10000)
      $ testGroup "Tests"
-         [ arbTestGroup "Word8" (0 ∷ Word8)
-         , arbTestGroup "Int8" (0 ∷ Int8)
-         , arbTestGroup "Word16" (0 ∷ Word16)
-         , arbTestGroup "Int16" (0 ∷ Int16)
-         , arbTestGroup "Word32" (0 ∷ Word32)
-         , arbTestGroup "Int32" (0 ∷ Int32)
-         , arbTestGroup "Word64" (0 ∷ Word64)
-         , arbTestGroup "Int64" (0 ∷ Int64)
-         , isoTestGroup "|Word32|Word32|" (0 ∷ U64)
+         [ isoTestGroup "|Word32|Word32|" (0 ∷ U64)
          , isoTestGroup "|Int32|Word32|" (0 ∷ I64)
          , isoTestGroup "|Word16|Word16|Word32|" (0 ∷ UU64)
          , isoTestGroup "|Int16|Word16|Word32|" (0 ∷ II64) ]
-
-arbTestGroup name t =
-  testGroup name
-    [ testGroup "BinaryWord"
-        [ testProperty "unwrappedAdd" $ prop_unwrappedAddArb t
-        , testProperty "unwrappedMul" $ prop_unwrappedMulArb t
-        , testProperty "leadingZeroes" $ prop_leadingZeroesArb t
-        , testProperty "trailingZeroes" $ prop_trailingZeroesArb t
-        , testProperty "allZeroes" $ prop_allZeroesArb t
-        , testProperty "allOnes" $ prop_allOnesArb t
-        , testProperty "msb" $ prop_msbArb t
-        , testProperty "lsb" $ prop_lsbArb t
-        , testProperty "testMsb" $ prop_testMsbArb t
-        , testProperty "testLsb" $ prop_testLsbArb t ]
-    ]
 
 isoTestGroup name t =
   testGroup name
@@ -135,61 +112,6 @@ isoTestGroup name t =
 #if !MIN_VERSION_base(4,7,0)
 finiteBitSize = bitSize
 #endif
-
-prop_unwrappedAddArb ∷ ∀ α
-                     . (Integral α, BinaryWord α, Bounded (UnsignedWord α),
-                        Integral (UnsignedWord α))
-                     ⇒ α → α → α → Bool
-prop_unwrappedAddArb _ x y = s == toInteger x + toInteger y
-  where (hi, lo) = unwrappedAdd x y
-        s = toInteger hi * (toInteger (maxBound ∷ UnsignedWord α) + 1)
-          + toInteger lo
-
-prop_unwrappedMulArb ∷ ∀ α
-                     . (Integral α, BinaryWord α, Bounded (UnsignedWord α),
-                        Integral (UnsignedWord α))
-                     ⇒ α → α → α → Bool
-prop_unwrappedMulArb _ x y = p == toInteger x * toInteger y
-  where (hi, lo) = unwrappedMul x y 
-        p = toInteger hi * (toInteger (maxBound ∷ UnsignedWord α) + 1)
-          + toInteger lo
-
-prop_leadingZeroesArb ∷ ∀ α . (Num α, BinaryWord α) ⇒ α → α → Bool
-prop_leadingZeroesArb _ x
-  | lz == 0   = testBit x (bs - 1)
-  | lz == bs  = x == 0
-  | otherwise = shiftR x (bs - lz) == 0 && testBit x (bs - lz - 1)
-  where lz = leadingZeroes x
-        bs = finiteBitSize x
-
-prop_trailingZeroesArb ∷ ∀ α . (Num α, BinaryWord α) ⇒ α → α → Bool
-prop_trailingZeroesArb _ x
-  | tz == 0   = testBit x 0
-  | tz == bs  = x == 0
-  | otherwise = shiftL x (bs - tz) == 0 && testBit x tz
-  where tz = trailingZeroes x
-        bs = finiteBitSize x
-
-prop_allZeroesArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
-prop_allZeroesArb a =
-  all (not . testBit (allZeroes ∷ α)) [0 .. finiteBitSize a - 1]
-
-prop_allOnesArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
-prop_allOnesArb a = all (testBit (allOnes ∷ α)) [0 .. finiteBitSize a - 1]
-
-prop_msbArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
-prop_msbArb a = testBit (msb ∷ α) (finiteBitSize a - 1) &&
-                all (not . testBit (msb ∷ α)) [0 .. finiteBitSize a - 2]
-
-prop_lsbArb ∷ ∀ α . BinaryWord α ⇒ α → Bool
-prop_lsbArb a = testBit (lsb ∷ α) 0 &&
-                all (not . testBit (lsb ∷ α)) [1 .. finiteBitSize a - 1]
-
-prop_testMsbArb ∷ ∀ α . BinaryWord α ⇒ α → α → Bool
-prop_testMsbArb _ x = testMsb x == testBit x (finiteBitSize x - 1)
-
-prop_testLsbArb ∷ ∀ α . BinaryWord α ⇒ α → α → Bool
-prop_testLsbArb _ x = testLsb x == testBit x 0
 
 toType ∷ Iso α τ ⇒ τ → α → τ 
 toType _ = fromArbitrary
