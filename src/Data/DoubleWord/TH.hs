@@ -106,7 +106,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
             Nothing
 #endif
             [NormalC cn [(hiS, hiT), (loS, loT)]]
-#if MIN_VERSION_template_haskell(2,11,0)
+#if MIN_VERSION_template_haskell(2,12,0)
+            [DerivClause Nothing (map ConT ad)]
+#elif MIN_VERSION_template_haskell(2,11,0)
             (ConT <$> ad)
 #else
             ad
@@ -222,9 +224,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         {- enumFrom x = enumFromTo x maxBound -}
         , funX 'enumFrom $ appVN 'enumFromTo [x, 'maxBound]
         , inline 'enumFrom
-        {- 
+        {-
           enumFromThen x y =
-            enumFromThenTo x y $ if y >= x then maxBound else minBound 
+            enumFromThenTo x y $ if y >= x then maxBound else minBound
         -}
         , funXY 'enumFromThen $
             appV 'enumFromThenTo
@@ -241,7 +243,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
             where down to c = next : if next == to then [] else down to next
                     where next = c - 1
                   up to c = next : if next == to then [] else up to next
-                    where next = c + 1 
+                    where next = c + 1
         -}
         , FunD 'enumFromTo $ return $
             Clause
@@ -283,14 +285,14 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                           (NormalB $ appVN '(+) [c, 'lsb]) []]
               ]
         {-
-          enumFromThenTo x y z = case y `compare` x of 
+          enumFromThenTo x y z = case y `compare` x of
               LT → if z > x then [] else down (x - y) z x
               EQ → repeat x
               GT → if z < x then [] else up (y - x) z x
             where down s to c = c : if next < to then [] else down s to next
                     where next = c - s
                   up s to c = c : if next > to then [] else up s to next
-                    where next = c + s 
+                    where next = c + s
         -}
         , FunD 'enumFromThenTo $ return $
             Clause [VarP x, VarP y, VarP z]
@@ -341,9 +343,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                   (appW [ appV 'negate [appVN '(+) ['lsb, hi]]
                         , appVN 'negate [lo] ])
         , inlinable 'negate
-        {- 
+        {-
           abs x = if SIGNED
-                  then if x < 0 then negate x else x 
+                  then if x < 0 then negate x else x
                   else x
         -}
         , funX 'abs $
@@ -458,7 +460,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                   GT | lo' == 0 → (W 0 (fromIntegral t2),
                                    W (fromIntegral t1) lo)
                     where (t2, t1) = quotRem hi hi'
-                  GT | hi' == 0 && lo' == maxBound → 
+                  GT | hi' == 0 && lo' == maxBound →
                       if t2 == 0
                       then if t1 == maxBound
                            then (W 0 z + 1, 0)
@@ -499,7 +501,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                   then (q1 - 2, t9 - t5)
                                   else (q1 - 2, (maxBound - t5) + t9 + 1)
                               else
-                                (q1 - 1, (maxBound - t5) + t7 + 1) 
+                                (q1 - 1, (maxBound - t5) + t7 + 1)
                             else
                               (q1, t6 - t5)
             where div1 hhh hll by = go hhh hll 0
@@ -617,7 +619,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                (CondE (appVN '(==) [t1, 'maxBound])
                                   (TupE
                                      [ appV '(+)
-                                         [ appWN ['allZeroes, z] 
+                                         [ appWN ['allZeroes, z]
                                          , oneE ]
                                      , zeroE ])
                                   (TupE
@@ -663,7 +665,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                     , appV '(-) [hiSizeE, VarE t2]
                                     ]
                         , ValD (ConP cn [VarP hhh, VarP hll])
-                            (NormalB $ appVN 'shiftL [x, t2]) [] 
+                            (NormalB $ appVN 'shiftL [x, t2]) []
                         , ValD (AsP v $ ConP cn [VarP lhh, VarP lll])
                             (NormalB $ appVN 'shiftL [y, t2]) []
                         , ValD (TupP [ TupP [LitP (IntegerL 0), VarP q1]
@@ -798,7 +800,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                        if r == 0
                        then (q1, r1)
                        else (q1 - 1, r1 + y)
-              else 
+              else
                 if y < 0
                 then let (q, r) = quotRem (unsignedWord x)
                                           (negate $ unsignedWord y)
@@ -992,7 +994,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
             funXY 'rotateL $
               appV 'signedWord
                    [appV 'rotateL [appVN 'unsignedWord [x], VarE y]]
-          else 
+          else
             funHiLoX' 'rotateL
               (CondE (appV '(>=) [VarE y, litI 0])
                  (appW
@@ -1089,7 +1091,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         if signed then [inline 'rotateL] else []
 #if MIN_VERSION_base(4,7,0)
     , inst ''FiniteBits [tp]
-        {- 
+        {-
            finiteBitSize = finiteBitSize (undefined ∷ H) +
                            finiteBitSize (undefined ∷ L)
         -}
@@ -1113,7 +1115,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         {-
           UNSIGNED:
             unsignedWord = id
-          
+
           SIGNED:
             unsignedWord (W hi lo) = U (unsignedWord hi) lo
         -}
@@ -1127,7 +1129,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         {-
           UNSIGNED:
             signedWord (W hi lo) = S (signedWord hi) lo
-          
+
           SIGNED:
             signedWord = id
         -}
@@ -1141,7 +1143,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         {-
           UNSIGNED:
             unwrappedAdd (W hi lo) (W hi' lo') = (W 0 z, W y x)
-              where (t1, x) = unwrappedAdd lo lo' 
+              where (t1, x) = unwrappedAdd lo lo'
                     (t3, t2) = unwrappedAdd hi (fromIntegral t1)
                     (t4, y) = unwrappedAdd t2 hi'
                     z = fromIntegral $ t3 + t4
