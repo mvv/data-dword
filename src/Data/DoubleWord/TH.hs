@@ -232,17 +232,15 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
             appV 'enumFromThenTo
               [ VarE x
               , VarE y
-              , CondE (appVN '(>=) [x, y]) (VarE 'maxBound) (VarE 'minBound)
+              , CondE (appVN '(>=) [y, x]) (VarE 'maxBound) (VarE 'minBound)
               ]
         , inlinable 'enumFromThen
         {-
           enumFromTo x y = case y `compare` x of
-              LT → x : down y x
+              LT → []
               EQ → [x]
               GT → x : up y x
-            where down to c = next : if next == to then [] else down to next
-                    where next = c - 1
-                  up to c = next : if next == to then [] else up to next
+            where up to c = next : if next == to then [] else up to next
                     where next = c + 1
         -}
         , FunD 'enumFromTo $ return $
@@ -250,30 +248,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
               [VarP x, VarP y]
               (NormalB $
                  CaseE (appVN 'compare [y, x])
-                   [ Match
-                       (ConP 'LT [])
-                       (NormalB $ appC '(:) [VarE x, appVN down [y, x]])
-                       []
-                   , Match
-                       (ConP 'EQ [])
-                       (NormalB $ appC '(:) [VarE x, ConE '[]])
-                       []
-                   , Match
-                       (ConP 'GT [])
-                       (NormalB $ appC '(:) [VarE x, appVN up [y, x]])
-                       []
+                   [ match (ConP 'LT []) (ConE '[])
+                   , match (ConP 'EQ []) (singE $ VarE x)
+                   , match (ConP 'GT []) $ appC '(:) [VarE x, appVN up [y, x]]
                    ])
-              [ FunD down $ return $
-                  Clause [VarP to, VarP c]
-                    (NormalB $
-                       appC '(:)
-                         [ VarE next
-                         , CondE (appVN '(==) [next, to])
-                                 (ConE '[]) (appVN down [to, next])
-                         ])
-                    [ValD (VarP next)
-                          (NormalB $ appVN '(-) [c, 'lsb]) []]
-              , FunD up $ return $
+              [ FunD up $ return $
                   Clause [VarP to, VarP c]
                     (NormalB $
                        appC '(:)
@@ -281,56 +260,66 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                          , CondE (appVN '(==) [next, to])
                                  (ConE '[]) (appVN up [to, next])
                          ])
-                    [ValD (VarP next)
-                          (NormalB $ appVN '(+) [c, 'lsb]) []]
+                    [val next $ appVN '(+) [c, 'lsb]]
               ]
         {-
           enumFromThenTo x y z = case y `compare` x of
-              LT → if z > x then [] else down (x - y) z x
-              EQ → repeat x
-              GT → if z < x then [] else up (y - x) z x
-            where down s to c = c : if next < to then [] else down s to next
-                    where next = c - s
-                  up s to c = c : if next > to then [] else up s to next
-                    where next = c + s
+              LT → if z > y then (if z > x then [] else [x])
+                            else x : down step (z + step) y
+                where step = x - y
+                      to = z + step
+                      down c | c < to    = [c]
+                             | otherwise = c : down (c - step)
+              EQ → if z < x then [] else repeat x
+              GT → if z < y then (if z < x then [] else [x])
+                            else x : up step (z - step) y
+                where step = y - x
+                      to = z - step
+                      up c | c > to    = [c]
+                           | otherwise = c : up (c + step)
         -}
         , FunD 'enumFromThenTo $ return $
             Clause [VarP x, VarP y, VarP z]
               (NormalB $
                 CaseE (appVN 'compare [y, x])
-                  [ Match
+                  [ match'
                       (ConP 'LT [])
-                      (NormalB $
-                         CondE (appVN '(>) [z, x])
-                               (ConE '[])
-                               (appV down [appVN '(-) [x, y], VarE z, VarE x]))
-                      []
-                  , Match (ConP 'EQ []) (NormalB $ appVN 'repeat [x]) []
-                  , Match
+                      (CondE (appVN '(>) [z, y])
+                             (CondE (appVN '(>) [z, x])
+                                    (ConE '[]) (singE $ VarE x))
+                             (appC '(:) [VarE x, appVN down [y]]))
+                      [ val step $ appVN '(-) [x, y]
+                      , val to $ appVN '(+) [z, step]
+                      , fun1 down c $
+                          CondE (appVN '(<) [c, to])
+                                (singE $ VarE c)
+                                (appC '(:)
+                                      [ VarE c
+                                      , appV down [appVN '(-) [c, step]]
+                                      ])
+                      ]
+                  , match
+                      (ConP 'EQ [])
+                      (CondE (appVN '(<) [z, x])
+                             (ConE '[]) (appVN 'repeat [x]))
+                  , match'
                       (ConP 'GT [])
-                      (NormalB $
-                         CondE (appVN '(<) [z, x]) (ConE '[])
-                               (appV up [appVN '(-) [y, x], VarE z, VarE x]))
-                      []
+                      (CondE (appVN '(<) [z, y])
+                             (CondE (appVN '(<) [z, x])
+                                    (ConE '[]) (singE $ VarE x))
+                             (appC '(:) [VarE x, appVN up [y]]))
+                      [ val step $ appVN '(-) [y, x]
+                      , val to $ appVN '(-) [z, step]
+                      , fun1 up c $
+                          CondE (appVN '(>) [c, to])
+                                (singE $ VarE c)
+                                (appC '(:)
+                                      [ VarE c
+                                      , appV up [appVN '(+) [c, step]]
+                                      ])
+                      ]
                   ])
-              [ FunD down $ return $
-                  Clause [VarP step, VarP to, VarP c]
-                    (NormalB $
-                       appC '(:)
-                         [ VarE c
-                         , CondE (appVN '(<) [next, to])
-                                 (ConE '[]) (appVN down [step, to, next])
-                         ])
-                    [ValD (VarP next) (NormalB $ appVN '(-) [c, step]) []]
-              , FunD up $ return $
-                  Clause [VarP step, VarP to, VarP c]
-                    (NormalB $
-                       appC '(:)
-                         [ VarE c
-                         , CondE (appVN '(==) [next, to])
-                                 (ConE '[]) (appVN up [step, to, next])
-                         ])
-                    [ValD (VarP next) (NormalB $ appVN '(+) [c, step]) []]]
+              []
         ]
     , inst ''Num [tp]
         {-
@@ -1401,6 +1390,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
 #endif
                                 [] (foldl AppT (ConT cls) (ConT <$> params))
     fun n e       = FunD n [Clause [] (NormalB e) []]
+    fun1 n a e    = FunD n [Clause [VarP a] (NormalB e) []]
     fun_ n e      = FunD n [Clause [WildP] (NormalB e) []]
     funX' n e ds  = FunD n [Clause [VarP x] (NormalB e) ds]
     funX n e      = funX' n e []
@@ -1456,6 +1446,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     hiSizeE = appV 'bitSize [SigE (VarE 'undefined) hiT]
     sizeE   = appV 'bitSize [SigE (VarE 'undefined) tpT]
 #endif
+    singE e = appC '(:) [e, ConE '[]]
     mkRules = do
       let idRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ show tp) []
                          (VarE 'fromIntegral)

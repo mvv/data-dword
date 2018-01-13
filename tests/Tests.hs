@@ -60,7 +60,10 @@ isoTestGroup name t =
         , testProperty "maxBound" $ prop_maxBound t ]
     , testGroup "Enum"
         [ testProperty "succ" $ prop_succ t
-        , testProperty "pred" $ prop_pred t ]
+        , testProperty "pred" $ prop_pred t
+        , testProperty "enumFromTo" $ prop_enumFromTo t
+        , testProperty "enumFromThen" $ prop_enumFromThen t
+        , testProperty "enumFromThenTo" $ prop_enumFromThenTo t ]
     , testGroup "Num"
         [ testProperty "negate" $ prop_negate t
         , testProperty "abs" $ prop_abs t
@@ -131,11 +134,17 @@ withBinary _ f x y = toArbitrary $ f (fromArbitrary x) (fromArbitrary y)
 withBinary' ∷ Iso α τ ⇒ τ → (τ → τ → β) → α → α → β
 withBinary' _ f x y = f (fromArbitrary x) (fromArbitrary y)
 
+withTernary' ∷ Iso α τ ⇒ τ → (τ → τ → τ → β) → α → α → α → β
+withTernary' _ f x y z =
+  f (fromArbitrary x) (fromArbitrary y) (fromArbitrary z)
+
 propUnary f g t w = f w == withUnary t g w
 propUnary' f g t w = f w == withUnary' t g w
 
 propBinary f g t w1 w2 = f w1 w2 == withBinary t g w1 w2
 propBinary' f g t w1 w2 = f w1 w2 == withBinary' t g w1 w2
+
+propTernary' f g t w1 w2 w3 = f w1 w2 w3 == withTernary' t g w1 w2 w3
 
 prop_conv t w = toArbitrary (toType t w) == w
 
@@ -148,6 +157,15 @@ prop_maxBound t = maxBound == fromType t maxBound
 
 prop_succ t w = (w /= maxBound) ==> (succ w == withUnary t succ w)
 prop_pred t w = (w /= minBound) ==> (pred w == withUnary t pred w)
+prop_enumFromTo =
+  propBinary' ((take 8 .) . enumFromTo)
+              (((fmap toArbitrary . take 8) .) . enumFromTo)
+prop_enumFromThen =
+  propBinary' ((take 8 .) . enumFromThen)
+              (((fmap toArbitrary . take 8) .) . enumFromThen)
+prop_enumFromThenTo =
+  propTernary' (((take 8 .) .) . enumFromThenTo)
+               ((((fmap toArbitrary . take 8) .) .) . enumFromThenTo)
 
 prop_unwrappedAdd ∷ (Iso α τ, Iso (UnsignedWord α) (UnsignedWord τ),
                      BinaryWord α, BinaryWord τ)
