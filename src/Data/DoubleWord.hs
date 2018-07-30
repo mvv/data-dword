@@ -5,17 +5,19 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | This module provides strict (low and high halves are unpacked)
---   signed and unsigned binary word data types of sizes 96, 128,
+--   signed and unsigned binary word data types of sizes 80, 96, 128,
 --   160, 192, 224, and 256 bits.
 module Data.DoubleWord
   ( module Data.BinaryWord
   , module Data.DoubleWord.Base
+  , Word80(..)
   , Word96(..)
   , Word128(..)
   , Word160(..)
   , Word192(..)
   , Word224(..)
   , Word256(..)
+  , Int80(..)
   , Int96(..)
   , Int128(..)
   , Int160(..)
@@ -32,6 +34,8 @@ import Data.BinaryWord
 import Data.DoubleWord.Base
 import Data.DoubleWord.TH
 
+mkUnpackedDoubleWord "Word80"  ''Word16  "Int80"  ''Int16  ''Word64
+  [''Typeable, ''Data, ''Generic]
 mkUnpackedDoubleWord "Word96"  ''Word32  "Int96"  ''Int32  ''Word64
   [''Typeable, ''Data, ''Generic]
 mkUnpackedDoubleWord "Word128" ''Word64  "Int128" ''Int64  ''Word64
