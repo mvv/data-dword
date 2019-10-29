@@ -21,7 +21,9 @@ import Data.Hashable (Hashable(..), hashWithSalt)
 #else
 import Data.Hashable (Hashable(..), combine)
 #endif
+#if !MIN_VERSION_base(4,12,0)
 import Control.Applicative ((<$>), (<*>))
+#endif
 import Language.Haskell.TH hiding (unpacked, match)
 import Data.BinaryWord (BinaryWord(..))
 import Data.DoubleWord.Base
@@ -1379,7 +1381,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     lo'  = mkName "lo'"
     tpT  = ConT tp
     tySynInst n ps t =
-#if MIN_VERSION_template_haskell(2,9,0)
+#if MIN_VERSION_template_haskell(2,15,0)
+      TySynInstD (TySynEqn Nothing (foldl AppT (ConT n) ps) t)
+#elif MIN_VERSION_template_haskell(2,9,0)
       TySynInstD n (TySynEqn ps t)
 #else
       TySynInstD n ps t
@@ -1447,12 +1451,18 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     sizeE   = appV 'bitSize [SigE (VarE 'undefined) tpT]
 #endif
     singE e = appC '(:) [e, ConE '[]]
+    ruleP name lhs rhs phases =
+      RuleP name
+#if MIN_VERSION_template_haskell(2,15,0)
+            Nothing
+#endif
+            [] lhs rhs phases
     mkRules = do
-      let idRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ show tp) []
+      let idRule = ruleP ("fromIntegral/" ++ show tp ++ "->" ++ show tp)
                          (VarE 'fromIntegral)
                          (SigE (VarE 'id) (AppT (AppT ArrowT tpT) tpT))
                          AllPhases
-          signRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ show otp) []
+          signRule = ruleP ("fromIntegral/" ++ show tp ++ "->" ++ show otp)
                            (VarE 'fromIntegral)
                            (SigE (VarE (if signed then 'unsignedWord
                                                   else 'signedWord))
@@ -1463,32 +1473,30 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                (VarE 'extendLo)
                (VarE 'signExtendLo)
     mkRules' rules t narrowE extE signExtE = do
-      let narrowRule = RuleP ("fromIntegral/" ++ show tp ++ "->" ++ showT t)
-                             []
+      let narrowRule = ruleP ("fromIntegral/" ++ show tp ++ "->" ++ showT t)
                              (VarE 'fromIntegral)
                              (SigE narrowE (AppT (AppT ArrowT tpT) t))
                              AllPhases
-          extRule = RuleP ("fromIntegral/" ++ showT t ++ "->" ++ show tp)
-                          []
+          extRule = ruleP ("fromIntegral/" ++ showT t ++ "->" ++ show tp)
                           (VarE 'fromIntegral)
                           (SigE extE (AppT (AppT ArrowT t) tpT))
                           AllPhases
       signedRules ← do
         insts ← reifyInstances ''SignedWord [t]
         case insts of
-#if MIN_VERSION_template_haskell(2,9,0)
+#if MIN_VERSION_template_haskell(2,15,0)
+          [TySynInstD (TySynEqn _ _ signT)] → return $
+#elif MIN_VERSION_template_haskell(2,9,0)
           [TySynInstD _ (TySynEqn _ signT)] → return $
 #else
           [TySynInstD _ _ signT] → return $
 #endif
-            [ RuleP ("fromIntegral/" ++ show tp ++ "->" ++ showT signT)
-                    []
+            [ ruleP ("fromIntegral/" ++ show tp ++ "->" ++ showT signT)
                     (VarE 'fromIntegral)
                     (SigE (AppE (appVN '(.) ['signedWord]) narrowE)
                           (AppT (AppT ArrowT tpT) signT))
                     AllPhases
-            , RuleP ("fromIntegral/" ++ showT signT ++ "->" ++ show tp)
-                    []
+            , ruleP ("fromIntegral/" ++ showT signT ++ "->" ++ show tp)
                     (VarE 'fromIntegral)
                     (SigE signExtE (AppT (AppT ArrowT signT) tpT))
                     AllPhases ]
@@ -1499,30 +1507,26 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
           let smallRules = ts >>= \(uSmallName, sSmallName) →
                 let uSmallT = ConT uSmallName
                     sSmallT = ConT sSmallName in
-                [ RuleP ("fromIntegral/" ++
+                [ ruleP ("fromIntegral/" ++
                          show tp ++ "->" ++ show uSmallName)
-                        []
                         (VarE 'fromIntegral)
                         (SigE (appV '(.) [VarE 'fromIntegral, narrowE])
                               (AppT (AppT ArrowT tpT) uSmallT))
                         AllPhases
-                , RuleP ("fromIntegral/" ++
+                , ruleP ("fromIntegral/" ++
                          show uSmallName ++ "->" ++ show tp)
-                        []
                         (VarE 'fromIntegral)
                         (SigE (appV '(.) [extE, VarE 'fromIntegral])
                               (AppT (AppT ArrowT uSmallT) tpT))
                         AllPhases
-                , RuleP ("fromIntegral/" ++
+                , ruleP ("fromIntegral/" ++
                          show tp ++ "->" ++ show sSmallName)
-                        []
                         (VarE 'fromIntegral)
                         (SigE (appV '(.) [VarE 'fromIntegral, narrowE])
                               (AppT (AppT ArrowT tpT) sSmallT))
                         AllPhases
-                , RuleP ("fromIntegral/" ++
+                , ruleP ("fromIntegral/" ++
                          show sSmallName ++ "->" ++ show tp)
-                        []
                         (VarE 'fromIntegral)
                         (SigE (appV '(.) [signExtE, VarE 'fromIntegral])
                               (AppT (AppT ArrowT sSmallT) tpT))
@@ -1532,7 +1536,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         _ → do
           insts ← reifyInstances ''LoWord [t]
           case insts of
-#if MIN_VERSION_template_haskell(2,9,0)
+#if MIN_VERSION_template_haskell(2,15,0)
+            [TySynInstD (TySynEqn _ _ t')] →
+#elif MIN_VERSION_template_haskell(2,9,0)
             [TySynInstD _ (TySynEqn _ t')] →
 #else
             [TySynInstD _ _ t'] →
