@@ -24,7 +24,7 @@ import Data.Hashable (Hashable(..), combine)
 #if !MIN_VERSION_base(4,12,0)
 import Control.Applicative ((<$>), (<*>))
 #endif
-import Language.Haskell.TH hiding (unpacked, match)
+import Language.Haskell.TH hiding (unpacked, match, conP)
 import Data.BinaryWord (BinaryWord(..))
 import Data.DoubleWord.Base
 
@@ -157,7 +157,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         -}
         [ funHiLo2 'compare $
             CaseE (appVN 'compare [hi, hi'])
-              [ Match (ConP 'EQ []) (NormalB (appVN 'compare [lo, lo'])) []
+              [ Match (conP 'EQ []) (NormalB (appVN 'compare [lo, lo'])) []
               , Match (VarP x) (NormalB (VarE x)) [] ]
         , inlinable 'compare ]
     , inst ''Bounded [tp]
@@ -213,10 +213,10 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
           fromEnum _           = ERROR
         -}
         , FunD 'fromEnum $
-            Clause [ConP cn [LitP $ IntegerL 0, VarP lo]]
+            Clause [conP cn [LitP $ IntegerL 0, VarP lo]]
                    (NormalB $ appVN 'fromEnum [lo]) [] :
             if signed
-            then [ Clause [ConP cn [LitP $ IntegerL (-1), VarP lo]]
+            then [ Clause [conP cn [LitP $ IntegerL (-1), VarP lo]]
                           (NormalB $
                              appV 'negate
                                [appV 'fromEnum [appV 'negate [VarE lo]]])
@@ -257,9 +257,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
               [VarP x, VarP y]
               (NormalB $
                  CaseE (appVN 'compare [y, x])
-                   [ match (ConP 'LT []) (ConE '[])
-                   , match (ConP 'EQ []) (singE $ VarE x)
-                   , match (ConP 'GT []) $ appC '(:) [VarE x, appVN up [y, x]]
+                   [ match (conP 'LT []) (ConE '[])
+                   , match (conP 'EQ []) (singE $ VarE x)
+                   , match (conP 'GT []) $ appC '(:) [VarE x, appVN up [y, x]]
                    ])
               [ FunD up $ return $
                   Clause [VarP to, VarP c]
@@ -292,7 +292,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
               (NormalB $
                 CaseE (appVN 'compare [y, x])
                   [ match'
-                      (ConP 'LT [])
+                      (conP 'LT [])
                       (CondE (appVN '(>) [z, y])
                              (CondE (appVN '(>) [z, x])
                                     (ConE '[]) (singE $ VarE x))
@@ -308,11 +308,11 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                       ])
                       ]
                   , match
-                      (ConP 'EQ [])
+                      (conP 'EQ [])
                       (CondE (appVN '(<) [z, x])
                              (ConE '[]) (appVN 'repeat [x]))
                   , match'
-                      (ConP 'GT [])
+                      (conP 'GT [])
                       (CondE (appVN '(<) [z, y])
                              (CondE (appVN '(<) [z, x])
                                     (ConE '[]) (singE $ VarE x))
@@ -363,13 +363,13 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
         , funHiLo 'signum $
             if signed
             then CaseE (appVN 'compare [hi, 'allZeroes])
-                   [ Match (ConP 'LT [])
+                   [ Match (conP 'LT [])
                            (NormalB $ appWN ['allOnes, 'maxBound]) []
-                   , Match (ConP 'EQ [])
+                   , Match (conP 'EQ [])
                            (NormalB $ CondE (appVN '(==) [lo, 'allZeroes])
                                             zeroE oneE)
                            []
-                   , Match (ConP 'GT []) (NormalB oneE) []
+                   , Match (conP 'GT []) (NormalB oneE) []
                    ]
             else CondE (appV '(&&) [ appVN '(==) [hi, 'allZeroes]
                                    , appVN '(==) [lo, 'allZeroes] ])
@@ -585,22 +585,22 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                  , appVN '(==) [lo', 'allZeroes] ])
                  (appV 'error [litS "divide by zero"])
                  (CaseE (appVN 'compare [hi, hi'])
-                    [ match (ConP 'LT []) (tup [zeroE, VarE x])
-                    , match (ConP 'EQ [])
+                    [ match (conP 'LT []) (tup [zeroE, VarE x])
+                    , match (conP 'EQ [])
                         (CaseE (appVN 'compare [lo, lo'])
-                           [ match (ConP 'LT []) (tup [zeroE, VarE x])
-                           , match (ConP 'EQ []) (tup [oneE, zeroE])
-                           , Match (ConP 'GT [])
+                           [ match (conP 'LT []) (tup [zeroE, VarE x])
+                           , match (conP 'EQ []) (tup [oneE, zeroE])
+                           , Match (conP 'GT [])
                                (GuardedB $ return
                                   ( NormalG (appVN '(==) [hi', 'allZeroes])
                                   , tup [ appWN ['allZeroes, t2]
                                          , appWN ['allZeroes, t1] ]))
                                [vals [t2, t1] $ appVN 'quotRem [lo, lo']]
-                           , match (ConP 'GT []) $
+                           , match (conP 'GT []) $
                                tup [ oneE
                                     , appW [zeroE, appVN '(-) [lo, lo']] ]
                            ])
-                    , Match (ConP 'GT [])
+                    , Match (conP 'GT [])
                         (GuardedB $ return
                            ( NormalG (appVN '(==) [lo', 'allZeroes])
                            , tup
@@ -608,7 +608,7 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                , appW [appVN 'fromIntegral [t1], VarE lo]
                                ] ))
                         [vals [t2, t1] $ appVN 'quotRem [hi, hi']]
-                    , Match (ConP 'GT [])
+                    , Match (conP 'GT [])
                         (GuardedB $ return
                            ( NormalG (appV '(&&)
                                         [ appVN '(==) [hi', 'allZeroes]
@@ -646,12 +646,12 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                            ))
                         [ val z $ appVN 'fromIntegral [hi]
                         , vals [t2, t1] $ appVN 'unwrappedAdd [z, lo] ]
-                    , Match (ConP 'GT [])
+                    , Match (conP 'GT [])
                         (GuardedB $ return
                            ( NormalG (appVN '(==) [hi', 'allZeroes])
                            , tup [VarE t2, appWN ['allZeroes, t1]] ))
                         [vals [t2, t1] $ appVN div1 [hi, lo, lo']]
-                    , match' (ConP 'GT [])
+                    , match' (conP 'GT [])
                         (CondE (appVN '(==) [t1, t2])
                                (tup [oneE, appVN '(-) [x, y]])
                                (tup [ appW [zeroE, appVN 'fromIntegral [q2]]
@@ -662,9 +662,9 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
                                     [ VarE hi
                                     , appV '(-) [hiSizeE, VarE t2]
                                     ]
-                        , ValD (ConP cn [VarP hhh, VarP hll])
+                        , ValD (conP cn [VarP hhh, VarP hll])
                             (NormalB $ appVN 'shiftL [x, t2]) []
-                        , ValD (AsP v $ ConP cn [VarP lhh, VarP lll])
+                        , ValD (AsP v $ conP cn [VarP lhh, VarP lll])
                             (NormalB $ appVN 'shiftL [y, t2]) []
                         , ValD (TupP [ TupP [LitP (IntegerL 0), VarP q1]
                                      , VarP r1 ])
@@ -1412,23 +1412,23 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
       FunD n [Clause [TupP [VarP x, VarP y], VarP z] (NormalB e) []]
     funTupLZ n e  =
       FunD n [Clause [TupP [VarP x, WildP], VarP z] (NormalB e) []]
-    funLo n e     = FunD n [Clause [ConP cn [WildP, VarP lo]] (NormalB e) []]
-    funHi n e     = FunD n [Clause [ConP cn [VarP hi, WildP]] (NormalB e) []]
+    funLo n e     = FunD n [Clause [conP cn [WildP, VarP lo]] (NormalB e) []]
+    funHi n e     = FunD n [Clause [conP cn [VarP hi, WildP]] (NormalB e) []]
     funHiLo n e   = funHiLo' n e []
     funHiLo' n e ds  =
-      FunD n [Clause [ConP cn [VarP hi, VarP lo]] (NormalB e) ds]
+      FunD n [Clause [conP cn [VarP hi, VarP lo]] (NormalB e) ds]
     funHiLoX' n e ds =
-      FunD n [Clause [ConP cn [VarP hi, VarP lo], VarP x] (NormalB e) ds]
+      FunD n [Clause [conP cn [VarP hi, VarP lo], VarP x] (NormalB e) ds]
     funHiLo2 n e     = funHiLo2' n e []
     funHiLo2' n e ds =
-      FunD n [Clause [ ConP cn [VarP hi, VarP lo]
-                     , ConP cn [VarP hi', VarP lo'] ]
+      FunD n [Clause [ conP cn [VarP hi, VarP lo]
+                     , conP cn [VarP hi', VarP lo'] ]
                      (NormalB e) ds]
     funHiLo2XY' n e ds =
-      FunD n [Clause [ AsP x (ConP cn [VarP hi, VarP lo])
-                     , AsP y (ConP cn [VarP hi', VarP lo']) ]
+      FunD n [Clause [ AsP x (conP cn [VarP hi, VarP lo])
+                     , AsP y (conP cn [VarP hi', VarP lo']) ]
                      (NormalB e) ds]
-    funXHiLo n e  = FunD n [Clause [VarP x, ConP cn [VarP hi, VarP lo]]
+    funXHiLo n e  = FunD n [Clause [VarP x, conP cn [VarP hi, VarP lo]]
                                    (NormalB e) []]
     match' p e ds = Match p (NormalB e) ds
     match p e     = match' p e []
@@ -1458,6 +1458,13 @@ mkDoubleWord' signed tp cn otp ocn hiS hiT loS loT ad = (<$> mkRules) $ (++) $
     sizeE   = appV 'bitSize [SigE (VarE 'undefined) tpT]
 #endif
     singE e = appC '(:) [e, ConE '[]]
+    conP name ps =
+      ConP name
+#if MIN_VERSION_template_haskell(2,18,0)
+           [] ps
+#else
+           ps
+#endif
     ruleP name lhs rhs phases =
       RuleP name
 #if MIN_VERSION_template_haskell(2,15,0)
