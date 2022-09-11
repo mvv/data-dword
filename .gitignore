@@ -1,5 +1,4 @@
-dist
-dist-newstyle
+/dist*
 .*
 *~
 *.log
